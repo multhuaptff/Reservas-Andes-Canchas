@@ -11,7 +11,7 @@ export async function initPublicView(supabase) {
     supabaseClient = supabase;
     setupCommonControls();
     await cargarCanchas();
-    await cargarReservas(false);
+    await cargarReservas(false); // false = vista pública (usa reservas_publicas si existe, sino fallará)
     renderizarTabla('public');
     attachDoubleClick('public');
 }
@@ -20,7 +20,7 @@ export async function initAdminView(supabase) {
     supabaseClient = supabase;
     setupCommonControls();
     await cargarCanchas();
-    await cargarReservas(true);
+    await cargarReservas(true); // true = traer todos los campos desde 'reservas'
     renderizarTabla('admin');
     attachDoubleClick('admin');
 }
@@ -64,6 +64,7 @@ async function cargarCanchas() {
         .order('orden', { ascending: true });
     if (error) console.error('Error cargando canchas:', error);
     else canchas = data;
+    console.log('Canchas cargadas:', canchas);
 }
 
 async function cargarReservas(esAdmin = false) {
@@ -72,15 +73,19 @@ async function cargarReservas(esAdmin = false) {
         .from(tabla)
         .select('*')
         .eq('fecha', fechaActual);
-    if (error) console.error(`Error cargando reservas desde ${tabla}:`, error);
-    else reservas = data;
-    console.log(`Reservas cargadas para ${fechaActual}:`, reservas);
+    if (error) {
+        console.error(`Error cargando reservas desde ${tabla}:`, error);
+        reservas = [];
+    } else {
+        reservas = data;
+        console.log(`Reservas cargadas (${tabla}) para ${fechaActual}:`, reservas);
+    }
 }
 
 function generarSlots() {
     const minutosSlot = parseInt(document.getElementById('granularidad').value);
     slots = [];
-    let hora = 6;
+    let hora = 6; // 6 AM
     let min = 0;
     while (hora < 23 || (hora === 23 && min === 0)) {
         slots.push({ hora, min });
@@ -104,7 +109,7 @@ function renderizarTabla(vista) {
     // Cabecera
     const thead = document.createElement('thead');
     const headerRow = document.createElement('tr');
-    headerRow.appendChild(document.createElement('th'));
+    headerRow.appendChild(document.createElement('th')); // esquina vacía
     for (let slot of slots) {
         const start = `${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}`;
         let endMin = slot.min + parseInt(document.getElementById('granularidad').value);
@@ -120,7 +125,7 @@ function renderizarTabla(vista) {
     }
     thead.appendChild(headerRow);
     table.appendChild(thead);
-
+    // Cuerpo: filas por cancha
     const tbody = document.createElement('tbody');
     for (let cancha of canchas) {
         const row = document.createElement('tr');
@@ -141,7 +146,6 @@ function renderizarTabla(vista) {
                 let clase = 'celda-ocupada';
                 if (vista === 'admin') {
                     const pagado = (reservaEnSlot.monto_efectivo || 0) + (reservaEnSlot.monto_yape || 0) + (reservaEnSlot.adelanto || 0);
-                    // Simplificamos: si pagado > 0, asumimos pagado (sin calcular costo real)
                     if (pagado > 0) clase = 'celda-pagado';
                     else if (reservaEnSlot.adelanto > 0) clase = 'celda-deuda-adelanto';
                     else clase = 'celda-deuda-sin-adelanto';
@@ -180,7 +184,7 @@ function attachDoubleClick(vista) {
             } else {
                 alert('Función de creación rápida para admin (puedes implementarla)');
             }
-        } else if (celda.classList.contains('celda-ocupada') || celda.classList.contains('celda-pagado') || celda.classList.contains('celda-deuda-adelanto') || celda.classList.contains('celda-deuda-sin-adelanto')) {
+        } else {
             const reservaId = celda.dataset.reservaId;
             if (reservaId) {
                 if (vista === 'admin') {
@@ -196,11 +200,11 @@ function attachDoubleClick(vista) {
 
 function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
     const modal = document.getElementById('modal-reserva');
+    if (!modal) return;
     modal.style.display = 'flex';
     const guardarBtn = document.getElementById('guardar-reserva');
     const cancelarBtn = document.getElementById('cancelar-reserva');
     const responsableInput = document.getElementById('responsable');
-    const telefonoInput = document.getElementById('telefono');
     const observacionesInput = document.getElementById('observaciones');
 
     const nuevaReservaHandler = async () => {
@@ -232,10 +236,9 @@ function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
         if (error) {
             alert('Error al guardar: ' + error.message);
         } else {
-            alert('Reserva solicitada correctamente. Espera confirmación del administrador.');
+            alert('Reserva solicitada correctamente.');
             modal.style.display = 'none';
             responsableInput.value = '';
-            telefonoInput.value = '';
             observacionesInput.value = '';
             await cargarReservas(tipoVistaActual() === 'admin');
             renderizarTabla(tipoVistaActual());
