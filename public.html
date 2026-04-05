@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Andes Sport - Reservas para Clientes</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+    <h1>📅 Reserva tu cancha - Andes Sport</h1>
+    <div class="toolbar">
+        <label>Fecha: <input type="date" id="fecha" value="2025-04-06"></label>
+        <button id="btn-anterior">← Anterior</button>
+        <button id="btn-siguiente">Siguiente →</button>
+        <button id="btn-hoy">Hoy</button>
+        <select id="granularidad">
+            <option value="30">30 minutos</option>
+            <option value="60">1 hora</option>
+        </select>
+    </div>
+    <div id="horario-container"></div>
+</div>
+
+<!-- Modal para nueva reserva -->
+<div id="modal-reserva" class="modal">
+    <div class="modal-content">
+        <h3>Nueva Reserva</h3>
+        <label>Responsable: <input type="text" id="responsable" required></label><br>
+        <label>Teléfono (opcional): <input type="text" id="telefono"></label><br>
+        <label>Observaciones: <input type="text" id="observaciones"></label><br>
+        <button id="guardar-reserva">Guardar</button>
+        <button id="cancelar-reserva">Cancelar</button>
+    </div>
+</div>
+
+<script type="module">
+    import { supabase } from './supabase-client.js';
+    // El resto del código lo pondremos en script.js para reutilizar
+    import { initPublicView } from './script.js';
+    initPublicView(supabase);
+</script>
+</body>
+</html>

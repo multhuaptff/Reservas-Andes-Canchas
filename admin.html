@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Andes Sport - Panel Administrativo</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .admin-col { background-color: #FFF3E0; }
+        td small { display: block; font-size: 0.8em; color: gray; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🔧 Administración de Reservas</h1>
+    <div class="toolbar">
+        <label>Fecha: <input type="date" id="fecha" value="2025-04-06"></label>
+        <button id="btn-anterior">←</button>
+        <button id="btn-siguiente">→</button>
+        <button id="btn-hoy">Hoy</button>
+        <select id="granularidad">
+            <option value="30">30 min</option>
+            <option value="60">1 hora</option>
+        </select>
+    </div>
+    <div id="horario-container"></div>
+</div>
+
+<script type="module">
+    import { supabase } from './supabase-client.js';
+    import { initAdminView } from './script.js';
+    initAdminView(supabase);
+</script>
+</body>
+</html>
