@@ -101,6 +101,14 @@ function generarSlots() {
     }
 }
 
+// Función para formatear hora en formato 12h con AM/PM
+function formatearHoraAMPM(hora, minuto) {
+    let periodo = hora >= 12 ? 'PM' : 'AM';
+    let hora12 = hora % 12;
+    if (hora12 === 0) hora12 = 12;
+    return `${hora12.toString().padStart(2,' ')}:${minuto.toString().padStart(2,'0')} ${periodo}`;
+}
+
 function obtenerTarifaPorHora(tipoCancha, hora) {
     const diaInicio = 6, diaFin = 18;
     const rango = (hora >= diaInicio && hora < diaFin) ? 'dia' : 'noche';
@@ -144,16 +152,17 @@ async function renderizarTabla(vista) {
     const tbody = document.createElement('tbody');
     for (let slot of slots) {
         const row = document.createElement('tr');
-        const start = `${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}`;
-        let endMin = slot.min + parseInt(document.getElementById('granularidad').value);
+        const startTime = new Date(`${fechaActual}T${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}:00`);
+        const endMin = slot.min + parseInt(document.getElementById('granularidad').value);
         let endH = slot.hora;
+        let endM = endMin;
         if (endMin >= 60) {
             endH += Math.floor(endMin / 60);
-            endMin = endMin % 60;
+            endM = endMin % 60;
         }
-        const end = `${endH.toString().padStart(2,'0')}:${endMin.toString().padStart(2,'0')}`;
+        const endTime = new Date(`${fechaActual}T${endH.toString().padStart(2,'0')}:${endM.toString().padStart(2,'0')}:00`);
         const tdHora = document.createElement('td');
-        tdHora.textContent = `${start} - ${end}`;
+        tdHora.textContent = `${formatearHoraAMPM(slot.hora, slot.min)} - ${formatearHoraAMPM(endH, endM)}`;
         tdHora.style.fontWeight = 'bold';
         row.appendChild(tdHora);
 
@@ -179,9 +188,6 @@ async function renderizarTabla(vista) {
                     else clase = 'celda-deuda-sin-adelanto';
                     contenido += `<br><small>💰 Pagado: S/${pagado.toFixed(2)}</small>`;
                     if (deuda > 0) contenido += `<br><small>⚠️ Deuda: S/${deuda.toFixed(2)}</small>`;
-                } else {
-                    // Vista pública: no mostrar montos, solo responsable y horario
-                    contenido = `${reservaEnSlot.responsable}<br><small>${reservaEnSlot.hora_inicio.slice(0,5)}-${reservaEnSlot.hora_fin.slice(0,5)}</small>`;
                 }
                 celda.className = clase;
                 celda.innerHTML = contenido;
@@ -239,7 +245,6 @@ function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
     const metodoPagoSelect = document.getElementById('metodo_pago');
     const observacionesInput = document.getElementById('observaciones');
 
-    // Limpiar valores previos
     responsableInput.value = '';
     telefonoInput.value = '';
     adelantoInput.value = '0';
@@ -260,7 +265,6 @@ function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
         const horaInicioStr = startDate.toTimeString().slice(0,8);
         const horaFinStr = endDate.toTimeString().slice(0,8);
         
-        // Determinar monto_efectivo o monto_yape según el método
         let montoEfectivo = 0, montoYape = 0;
         if (metodo === 'efectivo') montoEfectivo = adelanto;
         else montoYape = adelanto;
