@@ -142,10 +142,8 @@ async function renderizarTabla(vista) {
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
-    // Cada fila es un slot horario
     for (let slot of slots) {
         const row = document.createElement('tr');
-        // Celda de hora
         const start = `${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}`;
         let endMin = slot.min + parseInt(document.getElementById('granularidad').value);
         let endH = slot.hora;
@@ -159,7 +157,6 @@ async function renderizarTabla(vista) {
         tdHora.style.fontWeight = 'bold';
         row.appendChild(tdHora);
 
-        // Por cada cancha, una celda
         for (let cancha of canchas) {
             const slotStart = new Date(`${fechaActual}T${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}:00`);
             const minutosSlot = parseInt(document.getElementById('granularidad').value);
@@ -182,6 +179,9 @@ async function renderizarTabla(vista) {
                     else clase = 'celda-deuda-sin-adelanto';
                     contenido += `<br><small>💰 Pagado: S/${pagado.toFixed(2)}</small>`;
                     if (deuda > 0) contenido += `<br><small>⚠️ Deuda: S/${deuda.toFixed(2)}</small>`;
+                } else {
+                    // Vista pública: no mostrar montos, solo responsable y horario
+                    contenido = `${reservaEnSlot.responsable}<br><small>${reservaEnSlot.hora_inicio.slice(0,5)}-${reservaEnSlot.hora_fin.slice(0,5)}</small>`;
                 }
                 celda.className = clase;
                 celda.innerHTML = contenido;
@@ -207,16 +207,14 @@ function attachDoubleClick(vista) {
     container.addEventListener('dblclick', async (e) => {
         let celda = e.target.closest('td');
         if (!celda) return;
-        // La primera columna es la hora, no es clickeable para reservar
-        if (celda.cellIndex === 0) return;
+        if (celda.cellIndex === 0) return; // columna de hora
         if (celda.classList.contains('celda-libre')) {
             if (vista === 'public') {
                 mostrarModalReserva(celda.dataset.canchaId, celda.dataset.slotStart, celda.dataset.slotEnd);
             } else {
                 alert('Para crear reservas usa la aplicación de escritorio.');
             }
-        } else if (celda.classList.contains('celda-ocupada') || celda.classList.contains('celda-pagado') || 
-                   celda.classList.contains('celda-deuda-adelanto') || celda.classList.contains('celda-deuda-sin-adelanto')) {
+        } else {
             const reservaId = celda.dataset.reservaId;
             if (reservaId) {
                 if (vista === 'admin') {
@@ -237,7 +235,16 @@ function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
     const cancelarBtn = document.getElementById('cancelar-reserva');
     const responsableInput = document.getElementById('responsable');
     const telefonoInput = document.getElementById('telefono');
+    const adelantoInput = document.getElementById('adelanto');
+    const metodoPagoSelect = document.getElementById('metodo_pago');
     const observacionesInput = document.getElementById('observaciones');
+
+    // Limpiar valores previos
+    responsableInput.value = '';
+    telefonoInput.value = '';
+    adelantoInput.value = '0';
+    metodoPagoSelect.value = 'efectivo';
+    observacionesInput.value = '';
 
     const nuevaReservaHandler = async () => {
         const responsable = responsableInput.value.trim();
@@ -245,11 +252,19 @@ function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
             alert('Ingrese el nombre del responsable');
             return;
         }
+        const adelanto = parseFloat(adelantoInput.value) || 0;
+        const metodo = metodoPagoSelect.value;
         const startDate = new Date(slotStartISO);
         const endDate = new Date(slotEndISO);
         const fechaStr = startDate.toISOString().slice(0,10);
         const horaInicioStr = startDate.toTimeString().slice(0,8);
         const horaFinStr = endDate.toTimeString().slice(0,8);
+        
+        // Determinar monto_efectivo o monto_yape según el método
+        let montoEfectivo = 0, montoYape = 0;
+        if (metodo === 'efectivo') montoEfectivo = adelanto;
+        else montoYape = adelanto;
+        
         const { data, error } = await supabaseClient
             .from('reservas')
             .insert({
@@ -259,20 +274,18 @@ function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
                 responsable: responsable,
                 cancha_id: parseInt(canchaId),
                 observaciones: observacionesInput.value,
-                adelanto: 0,
-                monto_efectivo: 0,
-                monto_yape: 0,
-                monto_pagado: 0,
+                adelanto: adelanto,
+                monto_efectivo: montoEfectivo,
+                monto_yape: montoYape,
+                monto_pagado: adelanto,
+                metodo_pago: metodo,
                 tipo_uso: 'futbol'
             });
         if (error) {
             alert('Error al guardar: ' + error.message);
         } else {
-            alert('Reserva solicitada correctamente. Espera confirmación del administrador.');
+            alert('Reserva registrada correctamente. Gracias por tu adelanto.');
             modal.style.display = 'none';
-            responsableInput.value = '';
-            telefonoInput.value = '';
-            observacionesInput.value = '';
             await cargarReservas(tipoVistaActual() === 'admin');
             renderizarTabla(tipoVistaActual());
         }
