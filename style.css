@@ -21,7 +21,7 @@ table {
     border-collapse: collapse;
     background: white;
     border-radius: 16px;
-    overflow: hidden;
+    overflow: auto;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 th, td {
@@ -34,6 +34,11 @@ th {
     background-color: #F5F7F5;
     color: #2E7D32;
     font-weight: bold;
+}
+td small {
+    display: block;
+    font-size: 0.8em;
+    color: gray;
 }
 .celda-libre {
     background-color: #E8F5E9;
@@ -76,6 +81,7 @@ input, select {
     background: rgba(0,0,0,0.5);
     justify-content: center;
     align-items: center;
+    z-index: 1000;
 }
 .modal-content {
     background: white;
