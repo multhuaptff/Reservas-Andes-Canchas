@@ -4,14 +4,14 @@ let fechaActual = new Date().toISOString().slice(0,10);
 let canchas = [];
 let reservas = [];
 let slots = [];
-let preciosConfig = []; // para calcular costo
+let preciosConfig = [];
 
 export async function initPublicView(supabase) {
     supabaseClient = supabase;
     setupCommonControls();
     await cargarCanchas();
     await cargarPrecios();
-    await cargarReservas(false); // false = solo datos públicos
+    await cargarReservas(false);
     renderizarTabla('public');
     attachDoubleClick('public');
 }
@@ -21,7 +21,7 @@ export async function initAdminView(supabase) {
     setupCommonControls();
     await cargarCanchas();
     await cargarPrecios();
-    await cargarReservas(true); // true = traer todos los campos (montos)
+    await cargarReservas(true);
     renderizarTabla('admin');
     attachDoubleClick('admin');
 }
@@ -109,7 +109,6 @@ function obtenerTarifaPorHora(tipoCancha, hora) {
 }
 
 async function calcularCostoEsperado(canchaId, fecha, horaIni, horaFin) {
-    // Obtener tipo de cancha
     const cancha = canchas.find(c => c.id === canchaId);
     if (!cancha) return 0;
     const tipo = cancha.tipo;
@@ -128,11 +127,25 @@ async function renderizarTabla(vista) {
         return;
     }
     const table = document.createElement('table');
-    // Cabecera con rangos horarios
+    // Cabecera: nombres de canchas
     const thead = document.createElement('thead');
     const headerRow = document.createElement('tr');
-    headerRow.appendChild(document.createElement('th')); // esquina vacía
+    const thEsquina = document.createElement('th');
+    thEsquina.textContent = 'Hora / Cancha';
+    headerRow.appendChild(thEsquina);
+    for (let cancha of canchas) {
+        const th = document.createElement('th');
+        th.textContent = cancha.nombre;
+        headerRow.appendChild(th);
+    }
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    // Cada fila es un slot horario
     for (let slot of slots) {
+        const row = document.createElement('tr');
+        // Celda de hora
         const start = `${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}`;
         let endMin = slot.min + parseInt(document.getElementById('granularidad').value);
         let endH = slot.hora;
@@ -141,22 +154,13 @@ async function renderizarTabla(vista) {
             endMin = endMin % 60;
         }
         const end = `${endH.toString().padStart(2,'0')}:${endMin.toString().padStart(2,'0')}`;
-        const th = document.createElement('th');
-        th.textContent = `${start} - ${end}`;
-        headerRow.appendChild(th);
-    }
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
+        const tdHora = document.createElement('td');
+        tdHora.textContent = `${start} - ${end}`;
+        tdHora.style.fontWeight = 'bold';
+        row.appendChild(tdHora);
 
-    const tbody = document.createElement('tbody');
-    for (let cancha of canchas) {
-        const row = document.createElement('tr');
-        const tdCancha = document.createElement('td');
-        tdCancha.textContent = cancha.nombre;
-        tdCancha.style.fontWeight = 'bold';
-        row.appendChild(tdCancha);
-
-        for (let slot of slots) {
+        // Por cada cancha, una celda
+        for (let cancha of canchas) {
             const slotStart = new Date(`${fechaActual}T${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}:00`);
             const minutosSlot = parseInt(document.getElementById('granularidad').value);
             const slotEnd = new Date(slotStart.getTime() + minutosSlot * 60000);
@@ -203,6 +207,8 @@ function attachDoubleClick(vista) {
     container.addEventListener('dblclick', async (e) => {
         let celda = e.target.closest('td');
         if (!celda) return;
+        // La primera columna es la hora, no es clickeable para reservar
+        if (celda.cellIndex === 0) return;
         if (celda.classList.contains('celda-libre')) {
             if (vista === 'public') {
                 mostrarModalReserva(celda.dataset.canchaId, celda.dataset.slotStart, celda.dataset.slotEnd);
