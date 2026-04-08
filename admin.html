@@ -21,10 +21,13 @@
     <div id="horario-container" style="overflow-x: auto;"></div>
 </div>
 
-<!-- Modal completo con todos los campos -->
+<!-- Modal completo con hora inicio y hora fin seleccionables -->
 <div id="modal-reserva" class="modal">
     <div class="modal-content">
         <h3>Nueva Reserva</h3>
+        <label>Fecha: <input type="date" id="fecha-reserva" readonly style="background:#e9ecef;"></label><br>
+        <label>Hora inicio: <input type="time" id="hora-inicio" step="900" required></label><br>
+        <label>Hora fin: <input type="time" id="hora-fin" step="900" required></label><br>
         <label>Responsable: <input type="text" id="responsable" required></label><br>
         <label>Teléfono (opcional): <input type="text" id="telefono"></label><br>
         <label>Cliente (opcional):
