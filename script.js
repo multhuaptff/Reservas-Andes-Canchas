@@ -63,18 +63,26 @@ export async function initAdminView(supabase) {
 }
 
 function setupCommonControls() {
+    // Obtener fecha actual en zona local (YYYY-MM-DD)
+    const hoy = new Date();
+    const year = hoy.getFullYear();
+    const month = String(hoy.getMonth() + 1).padStart(2, '0');
+    const day = String(hoy.getDate()).padStart(2, '0');
+    fechaActual = `${year}-${month}-${day}`;
+    
     const fechaInput = document.getElementById('fecha');
     fechaInput.value = fechaActual;
+    
     fechaInput.addEventListener('change', () => {
         fechaActual = fechaInput.value;
-        cargarReservas().then(() => renderizarTabla(tipoVistaActual()));
+        cargarReservas(tipoVistaActual() === 'admin').then(() => renderizarTabla(tipoVistaActual()));
     });
     document.getElementById('btn-anterior').onclick = () => cambiarFecha(-1);
     document.getElementById('btn-siguiente').onclick = () => cambiarFecha(1);
     document.getElementById('btn-hoy').onclick = () => {
-        fechaActual = new Date().toISOString().slice(0,10);
+        fechaActual = `${year}-${month}-${day}`;
         fechaInput.value = fechaActual;
-        cargarReservas().then(() => renderizarTabla(tipoVistaActual()));
+        cargarReservas(tipoVistaActual() === 'admin').then(() => renderizarTabla(tipoVistaActual()));
     };
     document.getElementById('granularidad').addEventListener('change', () => {
         generarSlots();
