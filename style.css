@@ -16,15 +16,17 @@ body {
     flex-wrap: wrap;
     align-items: center;
 }
+/* Contenedor con scroll horizontal para la tabla */
 #horario-container {
     overflow-x: auto;
 }
 table {
     width: 100%;
+    min-width: 800px;  /* Asegura que se pueda hacer scroll si hay muchas columnas */
     border-collapse: collapse;
     background: white;
     border-radius: 16px;
-    min-width: 800px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 th, td {
     border: 1px solid #CFD8DC;
@@ -36,6 +38,11 @@ th {
     background-color: #F5F7F5;
     color: #2E7D32;
     font-weight: bold;
+}
+td small {
+    display: block;
+    font-size: 0.8em;
+    color: gray;
 }
 .celda-libre {
     background-color: #E8F5E9;
@@ -84,5 +91,5 @@ input, select {
     background: white;
     border-radius: 20px;
     padding: 20px;
-    min-width: 350px;
+    min-width: 350px;   /* Aumentado para mejor visibilidad */
 }
