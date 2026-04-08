@@ -45,9 +45,10 @@ export async function initPublicView(supabase) {
     setupCommonControls();
     await cargarCanchas();
     await cargarPrecios();
-    await cargarReservas(false);
+    await cargarReservas();
     renderizarTabla('public');
-    attachDoubleClick('public'); // solo mostrar info, sin crear
+    attachDoubleClick('public');
+    console.log('Vista pública inicializada');
 }
 
 export async function initAdminView(supabase) {
@@ -55,9 +56,10 @@ export async function initAdminView(supabase) {
     setupCommonControls();
     await cargarCanchas();
     await cargarPrecios();
-    await cargarReservas(true);
+    await cargarReservas();
     renderizarTabla('admin');
-    attachDoubleClick('admin'); // permite crear reservas
+    attachDoubleClick('admin');
+    console.log('Vista administrador inicializada');
 }
 
 function setupCommonControls() {
@@ -65,14 +67,14 @@ function setupCommonControls() {
     fechaInput.value = fechaActual;
     fechaInput.addEventListener('change', () => {
         fechaActual = fechaInput.value;
-        cargarReservas(tipoVistaActual() === 'admin').then(() => renderizarTabla(tipoVistaActual()));
+        cargarReservas().then(() => renderizarTabla(tipoVistaActual()));
     });
     document.getElementById('btn-anterior').onclick = () => cambiarFecha(-1);
     document.getElementById('btn-siguiente').onclick = () => cambiarFecha(1);
     document.getElementById('btn-hoy').onclick = () => {
         fechaActual = new Date().toISOString().slice(0,10);
         fechaInput.value = fechaActual;
-        cargarReservas(tipoVistaActual() === 'admin').then(() => renderizarTabla(tipoVistaActual()));
+        cargarReservas().then(() => renderizarTabla(tipoVistaActual()));
     };
     document.getElementById('granularidad').addEventListener('change', () => {
         generarSlots();
@@ -81,7 +83,10 @@ function setupCommonControls() {
 }
 
 function tipoVistaActual() {
-    return window.location.pathname.includes('admin') ? 'admin' : 'public';
+    // Forzar detección: si existe el modal, asumimos admin
+    const isAdmin = document.getElementById('modal-reserva') !== null;
+    console.log('Vista detectada:', isAdmin ? 'admin' : 'public');
+    return isAdmin ? 'admin' : 'public';
 }
 
 function cambiarFecha(delta) {
@@ -89,7 +94,7 @@ function cambiarFecha(delta) {
     date.setDate(date.getDate() + delta);
     fechaActual = date.toISOString().slice(0,10);
     document.getElementById('fecha').value = fechaActual;
-    cargarReservas(tipoVistaActual() === 'admin').then(() => renderizarTabla(tipoVistaActual()));
+    cargarReservas().then(() => renderizarTabla(tipoVistaActual()));
 }
 
 async function cargarCanchas() {
@@ -109,12 +114,11 @@ async function cargarPrecios() {
     else preciosConfig = data;
 }
 
-async function cargarReservas(adminMode) {
-    let query = supabaseClient
+async function cargarReservas() {
+    const { data, error } = await supabaseClient
         .from('reservas')
         .select('*')
         .eq('fecha', fechaActual);
-    const { data, error } = await query;
     if (error) console.error(error);
     else reservas = data;
 }
@@ -220,40 +224,46 @@ async function renderizarTabla(vista) {
 
 function attachDoubleClick(vista) {
     const container = document.getElementById('horario-container');
+    if (!container) {
+        console.error('No se encontró #horario-container');
+        return;
+    }
     container.addEventListener('dblclick', async (e) => {
         let celda = e.target.closest('td');
         if (!celda) return;
         if (celda.cellIndex === 0) return; // columna de hora
         
+        console.log('Doble clic en celda', celda.className, vista);
+        
         if (celda.classList.contains('celda-libre')) {
             if (vista === 'admin') {
-                // Administrador puede crear reserva
+                console.log('Mostrando modal para reserva');
                 mostrarModalReserva(celda.dataset.canchaId, celda.dataset.slotStart, celda.dataset.slotEnd);
             } else {
-                // Público solo ve mensaje informativo
                 alert('Para reservar, contacta con el administrador o llama al local.');
             }
         } else {
-            // Celda ocupada: mostrar detalles
             const reservaId = celda.dataset.reservaId;
             if (reservaId) {
                 const reserva = reservas.find(r => r.id == reservaId);
                 if (reserva) {
                     let msg = `Reservado por: ${reserva.responsable}\nHorario: ${reserva.hora_inicio.slice(0,5)} - ${reserva.hora_fin.slice(0,5)}`;
                     if (vista === 'admin') {
-                        msg += `\nAdelanto: S/${reserva.adelanto}\nMonto pagado: S/${(reserva.monto_efectivo+reserva.monto_yape+reserva.adelanto).toFixed(2)}`;
+                        msg += `\nAdelanto: S/${reserva.adelanto}\nPagado: S/${(reserva.monto_efectivo+reserva.monto_yape+reserva.adelanto).toFixed(2)}`;
                     }
                     alert(msg);
                 }
             }
         }
     });
+    console.log('Evento de doble clic asignado');
 }
 
 function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
     const modal = document.getElementById('modal-reserva');
     if (!modal) {
-        console.error('Modal no encontrado');
+        console.error('Modal no encontrado. ¿Estás en admin.html?');
+        alert('Error: No se encontró el formulario de reserva. Asegúrate de estar en admin.html');
         return;
     }
     modal.style.display = 'flex';
@@ -310,7 +320,7 @@ function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
         } else {
             alert('Reserva registrada correctamente.');
             modal.style.display = 'none';
-            await cargarReservas(true);
+            await cargarReservas();
             renderizarTabla('admin');
         }
     };
