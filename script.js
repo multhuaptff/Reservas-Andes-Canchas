@@ -6,7 +6,7 @@ let reservas = [];
 let slots = [];
 let preciosConfig = [];
 
-// --- Nueva función de cálculo por tramos ---
+// --- Función de tarifa por hora ---
 function obtenerTarifaPorHora(tipoCancha, hora) {
     const diaInicio = 6, diaFin = 18;
     const rango = (hora >= diaInicio && hora < diaFin) ? 'dia' : 'noche';
@@ -14,26 +14,21 @@ function obtenerTarifaPorHora(tipoCancha, hora) {
     return precio ? precio.precio_por_hora : 0;
 }
 
-// Calcula el costo considerando el cambio de tarifa a las 18:00
+// --- Cálculo de costo por tramos (corregido) ---
 async function calcularCostoEsperado(canchaId, fecha, horaIniStr, horaFinStr) {
     const cancha = canchas.find(c => c.id === canchaId);
     if (!cancha) return 0;
     const tipo = cancha.tipo;
-    
-    // Convertir a horas decimales
     const [hIni, mIni] = horaIniStr.split(':').map(Number);
     const [hFin, mFin] = horaFinStr.split(':').map(Number);
     let inicio = hIni + mIni / 60;
     let fin = hFin + mFin / 60;
     const cambio = 18; // 18:00
-    
     let costo = 0;
     if (inicio < cambio && fin > cambio) {
-        // Tramo día
         let duracionDia = cambio - inicio;
         let tarifaDia = obtenerTarifaPorHora(tipo, inicio);
         costo += duracionDia * tarifaDia;
-        // Tramo noche
         let duracionNoche = fin - cambio;
         let tarifaNoche = obtenerTarifaPorHora(tipo, cambio);
         costo += duracionNoche * tarifaNoche;
@@ -52,7 +47,7 @@ export async function initPublicView(supabase) {
     await cargarPrecios();
     await cargarReservas(false);
     renderizarTabla('public');
-    attachDoubleClick('public');
+    attachDoubleClick('public'); // solo mostrar info, sin crear
 }
 
 export async function initAdminView(supabase) {
@@ -62,7 +57,7 @@ export async function initAdminView(supabase) {
     await cargarPrecios();
     await cargarReservas(true);
     renderizarTabla('admin');
-    attachDoubleClick('admin');
+    attachDoubleClick('admin'); // permite crear reservas
 }
 
 function setupCommonControls() {
@@ -155,7 +150,6 @@ async function renderizarTabla(vista) {
         return;
     }
     const table = document.createElement('table');
-    // Cabecera
     const thead = document.createElement('thead');
     const headerRow = document.createElement('tr');
     const thEsquina = document.createElement('th');
@@ -229,21 +223,27 @@ function attachDoubleClick(vista) {
     container.addEventListener('dblclick', async (e) => {
         let celda = e.target.closest('td');
         if (!celda) return;
-        if (celda.cellIndex === 0) return;
+        if (celda.cellIndex === 0) return; // columna de hora
+        
         if (celda.classList.contains('celda-libre')) {
-            if (vista === 'public') {
+            if (vista === 'admin') {
+                // Administrador puede crear reserva
                 mostrarModalReserva(celda.dataset.canchaId, celda.dataset.slotStart, celda.dataset.slotEnd);
             } else {
-                alert('Para crear reservas usa la aplicación de escritorio.');
+                // Público solo ve mensaje informativo
+                alert('Para reservar, contacta con el administrador o llama al local.');
             }
         } else {
+            // Celda ocupada: mostrar detalles
             const reservaId = celda.dataset.reservaId;
             if (reservaId) {
-                if (vista === 'admin') {
-                    mostrarDetalleReservaAdmin(reservaId);
-                } else {
-                    const reserva = reservas.find(r => r.id == reservaId);
-                    alert(`Reservado por: ${reserva.responsable}\nHorario: ${reserva.hora_inicio.slice(0,5)} - ${reserva.hora_fin.slice(0,5)}`);
+                const reserva = reservas.find(r => r.id == reservaId);
+                if (reserva) {
+                    let msg = `Reservado por: ${reserva.responsable}\nHorario: ${reserva.hora_inicio.slice(0,5)} - ${reserva.hora_fin.slice(0,5)}`;
+                    if (vista === 'admin') {
+                        msg += `\nAdelanto: S/${reserva.adelanto}\nMonto pagado: S/${(reserva.monto_efectivo+reserva.monto_yape+reserva.adelanto).toFixed(2)}`;
+                    }
+                    alert(msg);
                 }
             }
         }
@@ -252,6 +252,10 @@ function attachDoubleClick(vista) {
 
 function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
     const modal = document.getElementById('modal-reserva');
+    if (!modal) {
+        console.error('Modal no encontrado');
+        return;
+    }
     modal.style.display = 'flex';
     const guardarBtn = document.getElementById('guardar-reserva');
     const cancelarBtn = document.getElementById('cancelar-reserva');
@@ -304,18 +308,14 @@ function mostrarModalReserva(canchaId, slotStartISO, slotEndISO) {
         if (error) {
             alert('Error al guardar: ' + error.message);
         } else {
-            alert('Reserva registrada correctamente. Gracias por tu adelanto.');
+            alert('Reserva registrada correctamente.');
             modal.style.display = 'none';
-            await cargarReservas(tipoVistaActual() === 'admin');
-            renderizarTabla(tipoVistaActual());
+            await cargarReservas(true);
+            renderizarTabla('admin');
         }
     };
     guardarBtn.onclick = nuevaReservaHandler;
     cancelarBtn.onclick = () => {
         modal.style.display = 'none';
     };
-}
-
-function mostrarDetalleReservaAdmin(reservaId) {
-    alert('Para gestionar pagos y editar, usa la aplicación de escritorio.');
 }
