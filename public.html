@@ -22,25 +22,6 @@
     <div id="horario-container"></div>
 </div>
 
-<!-- Modal para nueva reserva (con adelanto y método de pago) -->
-<div id="modal-reserva" class="modal">
-    <div class="modal-content">
-        <h3>Nueva Reserva</h3>
-        <label>Responsable: <input type="text" id="responsable" required></label><br>
-        <label>Teléfono (opcional): <input type="text" id="telefono"></label><br>
-        <label>Adelanto (S/): <input type="number" id="adelanto" step="0.01" value="0"></label><br>
-        <label>Método de pago del adelanto:
-            <select id="metodo_pago">
-                <option value="efectivo">Efectivo</option>
-                <option value="yape">Yape</option>
-            </select>
-        </label><br>
-        <label>Observaciones: <input type="text" id="observaciones"></label><br>
-        <button id="guardar-reserva">Guardar</button>
-        <button id="cancelar-reserva">Cancelar</button>
-    </div>
-</div>
-
 <script type="module">
     import { supabase } from './supabase-client.js';
     import { initPublicView } from './script.js';
