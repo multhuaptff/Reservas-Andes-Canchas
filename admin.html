@@ -21,12 +21,24 @@
     <div id="horario-container"></div>
 </div>
 
-<!-- Modal para nueva reserva (solo visible para administradores) -->
+<!-- Modal para nueva reserva (versión mejorada) -->
 <div id="modal-reserva" class="modal">
     <div class="modal-content">
         <h3>Nueva Reserva</h3>
         <label>Responsable: <input type="text" id="responsable" required></label><br>
         <label>Teléfono (opcional): <input type="text" id="telefono"></label><br>
+
+        <!-- Selector de tipo de reserva -->
+        <label>Tipo de reserva:
+            <select id="tipo-reserva">
+                <option value="individual">Individual (solo esta cancha)</option>
+                <option value="media12">Media cancha (Fútbol 1+2)</option>
+                <option value="media34">Media cancha (Fútbol 3+4)</option>
+                <option value="completa">Cancha completa (Fútbol 1+2+3+4)</option>
+            </select>
+        </label><br>
+
+        <label>Costo estimado: <span id="costo-estimado">S/ 0.00</span></label><br>
         <label>Adelanto (S/): <input type="number" id="adelanto" step="0.01" value="0"></label><br>
         <label>Método de pago del adelanto:
             <select id="metodo_pago">
