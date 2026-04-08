@@ -6,6 +6,45 @@ let reservas = [];
 let slots = [];
 let preciosConfig = [];
 
+// --- Nueva función de cálculo por tramos ---
+function obtenerTarifaPorHora(tipoCancha, hora) {
+    const diaInicio = 6, diaFin = 18;
+    const rango = (hora >= diaInicio && hora < diaFin) ? 'dia' : 'noche';
+    const precio = preciosConfig.find(p => p.tipo_cancha === tipoCancha && p.rango_nombre === rango);
+    return precio ? precio.precio_por_hora : 0;
+}
+
+// Calcula el costo considerando el cambio de tarifa a las 18:00
+async function calcularCostoEsperado(canchaId, fecha, horaIniStr, horaFinStr) {
+    const cancha = canchas.find(c => c.id === canchaId);
+    if (!cancha) return 0;
+    const tipo = cancha.tipo;
+    
+    // Convertir a horas decimales
+    const [hIni, mIni] = horaIniStr.split(':').map(Number);
+    const [hFin, mFin] = horaFinStr.split(':').map(Number);
+    let inicio = hIni + mIni / 60;
+    let fin = hFin + mFin / 60;
+    const cambio = 18; // 18:00
+    
+    let costo = 0;
+    if (inicio < cambio && fin > cambio) {
+        // Tramo día
+        let duracionDia = cambio - inicio;
+        let tarifaDia = obtenerTarifaPorHora(tipo, inicio);
+        costo += duracionDia * tarifaDia;
+        // Tramo noche
+        let duracionNoche = fin - cambio;
+        let tarifaNoche = obtenerTarifaPorHora(tipo, cambio);
+        costo += duracionNoche * tarifaNoche;
+    } else {
+        let duracion = fin - inicio;
+        let tarifa = obtenerTarifaPorHora(tipo, inicio);
+        costo += duracion * tarifa;
+    }
+    return costo;
+}
+
 export async function initPublicView(supabase) {
     supabaseClient = supabase;
     setupCommonControls();
@@ -101,30 +140,11 @@ function generarSlots() {
     }
 }
 
-// Función para formatear hora en formato 12h con AM/PM
 function formatearHoraAMPM(hora, minuto) {
     let periodo = hora >= 12 ? 'PM' : 'AM';
     let hora12 = hora % 12;
     if (hora12 === 0) hora12 = 12;
     return `${hora12.toString().padStart(2,' ')}:${minuto.toString().padStart(2,'0')} ${periodo}`;
-}
-
-function obtenerTarifaPorHora(tipoCancha, hora) {
-    const diaInicio = 6, diaFin = 18;
-    const rango = (hora >= diaInicio && hora < diaFin) ? 'dia' : 'noche';
-    const precio = preciosConfig.find(p => p.tipo_cancha === tipoCancha && p.rango_nombre === rango);
-    return precio ? precio.precio_por_hora : 0;
-}
-
-async function calcularCostoEsperado(canchaId, fecha, horaIni, horaFin) {
-    const cancha = canchas.find(c => c.id === canchaId);
-    if (!cancha) return 0;
-    const tipo = cancha.tipo;
-    const horaIniDate = new Date(`${fecha}T${horaIni}`);
-    const horaFinDate = new Date(`${fecha}T${horaFin}`);
-    const duracionHoras = (horaFinDate - horaIniDate) / (1000 * 3600);
-    const tarifa = obtenerTarifaPorHora(tipo, horaIniDate.getHours());
-    return tarifa * duracionHoras;
 }
 
 async function renderizarTabla(vista) {
@@ -135,7 +155,7 @@ async function renderizarTabla(vista) {
         return;
     }
     const table = document.createElement('table');
-    // Cabecera: nombres de canchas
+    // Cabecera
     const thead = document.createElement('thead');
     const headerRow = document.createElement('tr');
     const thEsquina = document.createElement('th');
@@ -153,23 +173,19 @@ async function renderizarTabla(vista) {
     for (let slot of slots) {
         const row = document.createElement('tr');
         const startTime = new Date(`${fechaActual}T${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}:00`);
-        const endMin = slot.min + parseInt(document.getElementById('granularidad').value);
-        let endH = slot.hora;
-        let endM = endMin;
-        if (endMin >= 60) {
-            endH += Math.floor(endMin / 60);
-            endM = endMin % 60;
-        }
-        const endTime = new Date(`${fechaActual}T${endH.toString().padStart(2,'0')}:${endM.toString().padStart(2,'0')}:00`);
+        const minutosSlot = parseInt(document.getElementById('granularidad').value);
+        const endTime = new Date(startTime.getTime() + minutosSlot * 60000);
+        const endH = endTime.getHours();
+        const endM = endTime.getMinutes();
+        
         const tdHora = document.createElement('td');
         tdHora.textContent = `${formatearHoraAMPM(slot.hora, slot.min)} - ${formatearHoraAMPM(endH, endM)}`;
         tdHora.style.fontWeight = 'bold';
         row.appendChild(tdHora);
 
         for (let cancha of canchas) {
-            const slotStart = new Date(`${fechaActual}T${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}:00`);
-            const minutosSlot = parseInt(document.getElementById('granularidad').value);
-            const slotEnd = new Date(slotStart.getTime() + minutosSlot * 60000);
+            const slotStart = startTime;
+            const slotEnd = endTime;
             const reservaEnSlot = reservas.find(r => {
                 const rStart = new Date(`${r.fecha}T${r.hora_inicio}`);
                 const rEnd = new Date(`${r.fecha}T${r.hora_fin}`);
@@ -213,7 +229,7 @@ function attachDoubleClick(vista) {
     container.addEventListener('dblclick', async (e) => {
         let celda = e.target.closest('td');
         if (!celda) return;
-        if (celda.cellIndex === 0) return; // columna de hora
+        if (celda.cellIndex === 0) return;
         if (celda.classList.contains('celda-libre')) {
             if (vista === 'public') {
                 mostrarModalReserva(celda.dataset.canchaId, celda.dataset.slotStart, celda.dataset.slotEnd);
