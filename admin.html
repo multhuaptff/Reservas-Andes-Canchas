@@ -21,30 +21,30 @@
     <div id="horario-container" style="overflow-x: auto;"></div>
 </div>
 
-<!-- Modal con selectores de hora en AM/PM y botones -->
+<!-- Modal con campos de hora en formato AM/PM y botones -->
 <div id="modal-reserva" class="modal">
     <div class="modal-content">
         <h3>Nueva Reserva</h3>
         <label>Fecha: <input type="date" id="fecha-reserva" readonly style="background:#e9ecef;"></label><br>
-        
+
         <label>Hora Inicio:</label>
-        <div style="display: flex; gap: 5px; align-items: center;">
-            <input type="text" id="hora-inicio" style="width: 80px; text-align: center;" readonly>
+        <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <input type="text" id="hora-inicio" style="width: 100px; text-align: center;" readonly>
             <button type="button" id="inicio-mas30">+30</button>
             <button type="button" id="inicio-menos30">-30</button>
             <button type="button" id="inicio-am">AM</button>
             <button type="button" id="inicio-pm">PM</button>
         </div>
-        
+
         <label>Hora Fin:</label>
-        <div style="display: flex; gap: 5px; align-items: center;">
-            <input type="text" id="hora-fin" style="width: 80px; text-align: center;" readonly>
+        <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 10px;">
+            <input type="text" id="hora-fin" style="width: 100px; text-align: center;" readonly>
             <button type="button" id="fin-mas30">+30</button>
             <button type="button" id="fin-menos30">-30</button>
             <button type="button" id="fin-am">AM</button>
             <button type="button" id="fin-pm">PM</button>
         </div>
-        
+
         <label>Responsable: <input type="text" id="responsable" required></label><br>
         <label>Teléfono (opcional): <input type="text" id="telefono"></label><br>
         <label>Cliente (opcional):
