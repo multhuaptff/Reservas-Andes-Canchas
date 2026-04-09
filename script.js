@@ -1,4 +1,4 @@
-// script.js (versión con hora inicio y hora fin seleccionables)
+// script.js (con selectores AM/PM y opciones de media/completa)
 let supabaseClient;
 let fechaActual = new Date().toISOString().slice(0,10);
 let canchas = [];
@@ -8,6 +8,50 @@ let preciosConfig = [];
 let clientes = [];
 let currentCanchaId = null;
 let currentFecha = null;
+let horaInicioActual = null;   // objeto Date para la hora inicio
+let horaFinActual = null;       // objeto Date para la hora fin
+
+// --- Conversión de hora (HH:MM) a Date (en el día actual) ---
+function stringToDate(horaStr) {
+    const [h, m] = horaStr.split(':').map(Number);
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d;
+}
+
+function dateToTimeString(date) {
+    return `${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2,'0')}`;
+}
+
+function formatAMPM(date) {
+    let hours = date.getHours();
+    let minutes = date.getMinutes();
+    let ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    let minutesStr = minutes < 10 ? '0'+minutes : minutes;
+    return `${hours}:${minutesStr} ${ampm}`;
+}
+
+function updateHoraInicioDisplay() {
+    document.getElementById('hora-inicio').value = formatAMPM(horaInicioActual);
+}
+function updateHoraFinDisplay() {
+    document.getElementById('hora-fin').value = formatAMPM(horaFinActual);
+}
+function ajustarHora(date, minutos) {
+    return new Date(date.getTime() + minutos * 60000);
+}
+function setHoraInicio(date) {
+    horaInicioActual = date;
+    updateHoraInicioDisplay();
+    actualizarCostoEstimadoModal();
+}
+function setHoraFin(date) {
+    horaFinActual = date;
+    updateHoraFinDisplay();
+    actualizarCostoEstimadoModal();
+}
 
 // --- Obtener tarifa por hora ---
 function obtenerTarifaPorHora(tipoCancha, hora) {
@@ -18,11 +62,9 @@ function obtenerTarifaPorHora(tipoCancha, hora) {
 }
 
 // --- Calcular costo por tramos ---
-async function calcularCostoPorTramos(tipoCancha, fecha, horaIniStr, horaFinStr) {
-    const [hIni, mIni] = horaIniStr.split(':').map(Number);
-    const [hFin, mFin] = horaFinStr.split(':').map(Number);
-    let inicio = hIni + mIni / 60;
-    let fin = hFin + mFin / 60;
+async function calcularCostoPorTramos(tipoCancha, fecha, horaIniDate, horaFinDate) {
+    const inicio = horaIniDate.getHours() + horaIniDate.getMinutes() / 60;
+    const fin = horaFinDate.getHours() + horaFinDate.getMinutes() / 60;
     const cambio = 18;
     let costo = 0;
     if (inicio < cambio && fin > cambio) {
@@ -41,24 +83,22 @@ async function calcularCostoPorTramos(tipoCancha, fecha, horaIniStr, horaFinStr)
 }
 
 // --- Calcular costo esperado (con precio especial) ---
-async function calcularCostoEsperado(canchaId, clienteId, fecha, horaIniStr, horaFinStr) {
+async function calcularCostoEsperado(canchaId, clienteId, fecha, horaIniDate, horaFinDate) {
     if (clienteId) {
         const cliente = clientes.find(c => c.id == clienteId);
         if (cliente && cliente.precio_especial_hora > 0) {
-            const [hIni, mIni] = horaIniStr.split(':').map(Number);
-            const [hFin, mFin] = horaFinStr.split(':').map(Number);
-            const duracion = (hFin + mFin/60) - (hIni + mIni/60);
+            const duracion = (horaFinDate - horaIniDate) / 3600000;
             return cliente.precio_especial_hora * duracion;
         }
     }
     const cancha = canchas.find(c => c.id === canchaId);
     if (!cancha) return 0;
-    return await calcularCostoPorTramos(cancha.tipo, fecha, horaIniStr, horaFinStr);
+    return await calcularCostoPorTramos(cancha.tipo, fecha, horaIniDate, horaFinDate);
 }
 
 // --- Costo para tipos especiales ---
-async function calcularCostoEspecial(tipoEspecial, fecha, horaIniStr, horaFinStr) {
-    return await calcularCostoPorTramos(tipoEspecial, fecha, horaIniStr, horaFinStr);
+async function calcularCostoEspecial(tipoEspecial, fecha, horaIniDate, horaFinDate) {
+    return await calcularCostoPorTramos(tipoEspecial, fecha, horaIniDate, horaFinDate);
 }
 
 // --- Obtener IDs de canchas por nombres ---
@@ -67,13 +107,15 @@ function obtenerCanchasPorNombres(nombres) {
 }
 
 // --- Verificar conflictos ---
-async function verificarConflictos(canchaIds, fecha, horaInicio, horaFin) {
+async function verificarConflictos(canchaIds, fecha, horaIniDate, horaFinDate) {
+    const horaInicioStr = dateToTimeString(horaIniDate);
+    const horaFinStr = dateToTimeString(horaFinDate);
     const { data, error } = await supabaseClient
         .from('reservas')
         .select('cancha_id')
         .eq('fecha', fecha)
-        .filter('hora_inicio', 'lt', horaFin)
-        .filter('hora_fin', 'gt', horaInicio)
+        .filter('hora_inicio', 'lt', horaFinStr)
+        .filter('hora_fin', 'gt', horaInicioStr)
         .in('cancha_id', canchaIds);
     if (error) throw error;
     return data.length > 0;
@@ -234,7 +276,8 @@ async function renderizarTabla(vista) {
                 let contenido = `${reservaEnSlot.responsable}<br><small>${reservaEnSlot.hora_inicio.slice(0,5)}-${reservaEnSlot.hora_fin.slice(0,5)}</small>`;
                 if (vista === 'admin') {
                     const pagado = (reservaEnSlot.monto_efectivo || 0) + (reservaEnSlot.monto_yape || 0) + (reservaEnSlot.adelanto || 0);
-                    const costo = await calcularCostoEsperado(reservaEnSlot.cancha_id, reservaEnSlot.cliente_id, reservaEnSlot.fecha, reservaEnSlot.hora_inicio, reservaEnSlot.hora_fin);
+                    const costo = await calcularCostoEsperado(reservaEnSlot.cancha_id, reservaEnSlot.cliente_id, reservaEnSlot.fecha, 
+                        stringToDate(reservaEnSlot.hora_inicio), stringToDate(reservaEnSlot.hora_fin));
                     const deuda = costo - pagado;
                     if (deuda <= 0.01) clase = 'celda-pagado';
                     else if (reservaEnSlot.adelanto > 0) clase = 'celda-deuda-adelanto';
@@ -272,16 +315,15 @@ function attachDoubleClick(vista) {
                 const startISO = celda.dataset.slotStart;
                 const startDate = new Date(startISO);
                 currentFecha = startDate.toISOString().slice(0,10);
-                // Pre-cargar fecha (solo lectura)
                 document.getElementById('fecha-reserva').value = currentFecha;
-                // Hora inicio: la del slot
-                const horaInicio = startDate.toTimeString().slice(0,5);
-                document.getElementById('hora-inicio').value = horaInicio;
-                // Hora fin: slot + 1 hora por defecto (o duración de granularidad)
+                
+                // Inicializar horas
                 const minutosSlot = parseInt(document.getElementById('granularidad').value);
-                const endDate = new Date(startDate.getTime() + minutosSlot * 60000);
-                const horaFin = endDate.toTimeString().slice(0,5);
-                document.getElementById('hora-fin').value = horaFin;
+                const endDateDefault = new Date(startDate.getTime() + minutosSlot * 60000);
+                horaInicioActual = new Date(startDate);
+                horaFinActual = new Date(endDateDefault);
+                updateHoraInicioDisplay();
+                updateHoraFinDisplay();
                 
                 const cancha = canchas.find(c => c.id === currentCanchaId);
                 const tipoSelect = document.getElementById('tipo-reserva');
@@ -296,6 +338,7 @@ function attachDoubleClick(vista) {
                 } else {
                     tipoSelect.innerHTML = `<option value="individual">Individual (solo esta cancha)</option>`;
                 }
+                
                 const clienteSelect = document.getElementById('cliente-id');
                 if (clienteSelect) {
                     clienteSelect.innerHTML = '<option value="">Sin cliente</option>';
@@ -303,17 +346,41 @@ function attachDoubleClick(vista) {
                         clienteSelect.innerHTML += `<option value="${c.id}">${c.nombre}${c.precio_especial_hora > 0 ? ` (Precio esp. S/${c.precio_especial_hora}/h)` : ''}</option>`;
                     });
                 }
-                // Eventos para recalcular costo al cambiar horas o tipo
-                const horaInicioInput = document.getElementById('hora-inicio');
-                const horaFinInput = document.getElementById('hora-fin');
-                const tipoSelectElem = document.getElementById('tipo-reserva');
-                const clienteSelectElem = document.getElementById('cliente-id');
-                const recalc = () => actualizarCostoEstimadoModal();
-                horaInicioInput.addEventListener('change', recalc);
-                horaFinInput.addEventListener('change', recalc);
-                tipoSelectElem.addEventListener('change', recalc);
-                if (clienteSelectElem) clienteSelectElem.addEventListener('change', recalc);
                 
+                // Configurar botones de hora
+                document.getElementById('inicio-mas30').onclick = () => setHoraInicio(ajustarHora(horaInicioActual, 30));
+                document.getElementById('inicio-menos30').onclick = () => setHoraInicio(ajustarHora(horaInicioActual, -30));
+                document.getElementById('inicio-am').onclick = () => {
+                    let newH = horaInicioActual.getHours() % 12;
+                    if (newH === 0) newH = 0;
+                    let newDate = new Date(horaInicioActual);
+                    newDate.setHours(newH, horaInicioActual.getMinutes());
+                    setHoraInicio(newDate);
+                };
+                document.getElementById('inicio-pm').onclick = () => {
+                    let newH = (horaInicioActual.getHours() % 12) + 12;
+                    let newDate = new Date(horaInicioActual);
+                    newDate.setHours(newH, horaInicioActual.getMinutes());
+                    setHoraInicio(newDate);
+                };
+                document.getElementById('fin-mas30').onclick = () => setHoraFin(ajustarHora(horaFinActual, 30));
+                document.getElementById('fin-menos30').onclick = () => setHoraFin(ajustarHora(horaFinActual, -30));
+                document.getElementById('fin-am').onclick = () => {
+                    let newH = horaFinActual.getHours() % 12;
+                    if (newH === 0) newH = 0;
+                    let newDate = new Date(horaFinActual);
+                    newDate.setHours(newH, horaFinActual.getMinutes());
+                    setHoraFin(newDate);
+                };
+                document.getElementById('fin-pm').onclick = () => {
+                    let newH = (horaFinActual.getHours() % 12) + 12;
+                    let newDate = new Date(horaFinActual);
+                    newDate.setHours(newH, horaFinActual.getMinutes());
+                    setHoraFin(newDate);
+                };
+                
+                document.getElementById('tipo-reserva').addEventListener('change', () => actualizarCostoEstimadoModal());
+                document.getElementById('cliente-id').addEventListener('change', () => actualizarCostoEstimadoModal());
                 document.getElementById('adelanto').value = '0';
                 document.getElementById('responsable').value = '';
                 document.getElementById('telefono').value = '';
@@ -343,36 +410,29 @@ async function actualizarCostoEstimadoModal() {
     const tipo = document.getElementById('tipo-reserva').value;
     const clienteId = document.getElementById('cliente-id')?.value || null;
     const fecha = document.getElementById('fecha-reserva').value;
-    const horaInicioStr = document.getElementById('hora-inicio').value;
-    let horaFinStr = document.getElementById('hora-fin').value;
-    if (!horaInicioStr || !horaFinStr) return;
-    // Validar que hora fin > hora inicio
-    if (horaFinStr <= horaInicioStr) {
+    if (!horaInicioActual || !horaFinActual) return;
+    if (horaFinActual <= horaInicioActual) {
         document.getElementById('costo-estimado').innerText = 'S/ 0.00 (hora fin inválida)';
         return;
     }
     let costo = 0;
     if (tipo === 'individual') {
-        costo = await calcularCostoEsperado(currentCanchaId, clienteId, fecha, horaInicioStr, horaFinStr);
+        costo = await calcularCostoEsperado(currentCanchaId, clienteId, fecha, horaInicioActual, horaFinActual);
     } else if (tipo === 'media12' || tipo === 'media34') {
-        costo = await calcularCostoEspecial('media_cancha', fecha, horaInicioStr, horaFinStr);
+        costo = await calcularCostoEspecial('media_cancha', fecha, horaInicioActual, horaFinActual);
         if (clienteId) {
             const cliente = clientes.find(c => c.id == clienteId);
             if (cliente && cliente.precio_especial_hora > 0) {
-                const [hIni, mIni] = horaInicioStr.split(':').map(Number);
-                const [hFin, mFin] = horaFinStr.split(':').map(Number);
-                const duracion = (hFin + mFin/60) - (hIni + mIni/60);
+                const duracion = (horaFinActual - horaInicioActual) / 3600000;
                 costo = cliente.precio_especial_hora * duracion;
             }
         }
     } else if (tipo === 'completa') {
-        costo = await calcularCostoEspecial('completa', fecha, horaInicioStr, horaFinStr);
+        costo = await calcularCostoEspecial('completa', fecha, horaInicioActual, horaFinActual);
         if (clienteId) {
             const cliente = clientes.find(c => c.id == clienteId);
             if (cliente && cliente.precio_especial_hora > 0) {
-                const [hIni, mIni] = horaInicioStr.split(':').map(Number);
-                const [hFin, mFin] = horaFinStr.split(':').map(Number);
-                const duracion = (hFin + mFin/60) - (hIni + mIni/60);
+                const duracion = (horaFinActual - horaInicioActual) / 3600000;
                 costo = cliente.precio_especial_hora * duracion;
             }
         }
@@ -400,11 +460,11 @@ async function guardarReservaGrupo() {
     const observaciones = document.getElementById('observaciones').value;
     const clienteId = document.getElementById('cliente-id')?.value || null;
     const fechaStr = document.getElementById('fecha-reserva').value;
-    const horaInicioStr = document.getElementById('hora-inicio').value;
-    const horaFinStr = document.getElementById('hora-fin').value;
+    const horaInicioStr = dateToTimeString(horaInicioActual);
+    const horaFinStr = dateToTimeString(horaFinActual);
     
-    if (!fechaStr || !horaInicioStr || !horaFinStr) { alert('Complete fecha y horas'); return; }
-    if (horaFinStr <= horaInicioStr) { alert('La hora de fin debe ser mayor a la de inicio'); return; }
+    if (!fechaStr) { alert('Complete fecha'); return; }
+    if (horaFinActual <= horaInicioActual) { alert('La hora de fin debe ser mayor a la de inicio'); return; }
     
     let canchaIds = [];
     if (tipo === 'individual') canchaIds = [currentCanchaId];
@@ -415,31 +475,27 @@ async function guardarReservaGrupo() {
     if (canchaIds.length === 0) { alert('No se encontraron las canchas necesarias. Verifica los nombres en Supabase.'); return; }
     
     try {
-        const hayConflicto = await verificarConflictos(canchaIds, fechaStr, horaInicioStr, horaFinStr);
+        const hayConflicto = await verificarConflictos(canchaIds, fechaStr, horaInicioActual, horaFinActual);
         if (hayConflicto) { alert('Una o más canchas ya están ocupadas en ese horario.'); return; }
     } catch (err) { alert('Error al verificar disponibilidad: ' + err.message); return; }
     
     let costoTotal = 0;
-    if (tipo === 'individual') costoTotal = await calcularCostoEsperado(currentCanchaId, clienteId, fechaStr, horaInicioStr, horaFinStr);
+    if (tipo === 'individual') costoTotal = await calcularCostoEsperado(currentCanchaId, clienteId, fechaStr, horaInicioActual, horaFinActual);
     else if (tipo === 'media12' || tipo === 'media34') {
-        costoTotal = await calcularCostoEspecial('media_cancha', fechaStr, horaInicioStr, horaFinStr);
+        costoTotal = await calcularCostoEspecial('media_cancha', fechaStr, horaInicioActual, horaFinActual);
         if (clienteId) {
             const cliente = clientes.find(c => c.id == clienteId);
             if (cliente && cliente.precio_especial_hora > 0) {
-                const [hIni, mIni] = horaInicioStr.split(':').map(Number);
-                const [hFin, mFin] = horaFinStr.split(':').map(Number);
-                const duracion = (hFin + mFin/60) - (hIni + mIni/60);
+                const duracion = (horaFinActual - horaInicioActual) / 3600000;
                 costoTotal = cliente.precio_especial_hora * duracion;
             }
         }
     } else if (tipo === 'completa') {
-        costoTotal = await calcularCostoEspecial('completa', fechaStr, horaInicioStr, horaFinStr);
+        costoTotal = await calcularCostoEspecial('completa', fechaStr, horaInicioActual, horaFinActual);
         if (clienteId) {
             const cliente = clientes.find(c => c.id == clienteId);
             if (cliente && cliente.precio_especial_hora > 0) {
-                const [hIni, mIni] = horaInicioStr.split(':').map(Number);
-                const [hFin, mFin] = horaFinStr.split(':').map(Number);
-                const duracion = (hFin + mFin/60) - (hIni + mIni/60);
+                const duracion = (horaFinActual - horaInicioActual) / 3600000;
                 costoTotal = cliente.precio_especial_hora * duracion;
             }
         }
@@ -454,7 +510,7 @@ async function guardarReservaGrupo() {
         if (tipo === 'individual') costoInd = costoTotal;
         else {
             const cancha = canchas.find(c => c.id === cid);
-            if (cancha) costoInd = await calcularCostoPorTramos(cancha.tipo, fechaStr, horaInicioStr, horaFinStr);
+            if (cancha) costoInd = await calcularCostoPorTramos(cancha.tipo, fechaStr, horaInicioActual, horaFinActual);
         }
         costosIndividuales.push(costoInd);
     }
