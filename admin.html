@@ -4,24 +4,103 @@
     <meta charset="UTF-8">
     <title>Andes Sport - Panel Administrativo</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        .tab {
+            overflow: hidden;
+            border-bottom: 1px solid #ccc;
+            margin-bottom: 20px;
+        }
+        .tab button {
+            background-color: inherit;
+            float: left;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 10px 20px;
+            transition: 0.3s;
+            font-weight: bold;
+            margin-right: 5px;
+            border-radius: 30px 30px 0 0;
+        }
+        .tab button:hover {
+            background-color: #ddd;
+        }
+        .tab button.active {
+            background-color: #2E7D32;
+            color: white;
+        }
+        .tabcontent {
+            display: none;
+        }
+    </style>
 </head>
 <body>
 <div class="container">
     <h1>🔧 Administración de Reservas</h1>
-    <div class="toolbar">
-        <label>Fecha: <input type="date" id="fecha"></label>
-        <button id="btn-anterior">←</button>
-        <button id="btn-siguiente">→</button>
-        <button id="btn-hoy">Hoy</button>
-        <select id="granularidad">
-            <option value="30">30 min</option>
-            <option value="60">1 hora</option>
-        </select>
+    <div class="tab">
+        <button class="tablinks active" onclick="openTab(event, 'Horarios')">📅 Horarios</button>
+        <button class="tablinks" onclick="openTab(event, 'Recurrentes')">🔄 Reservas Recurrentes</button>
     </div>
-    <div id="horario-container" style="overflow-x: auto;"></div>
+
+    <!-- Pestaña Horarios -->
+    <div id="Horarios" class="tabcontent" style="display: block;">
+        <div class="toolbar">
+            <label>Fecha: <input type="date" id="fecha"></label>
+            <button id="btn-anterior">←</button>
+            <button id="btn-siguiente">→</button>
+            <button id="btn-hoy">Hoy</button>
+            <select id="granularidad">
+                <option value="30">30 min</option>
+                <option value="60">1 hora</option>
+            </select>
+        </div>
+        <div id="horario-container" style="overflow-x: auto;"></div>
+    </div>
+
+    <!-- Pestaña Reservas Recurrentes -->
+    <div id="Recurrentes" class="tabcontent">
+        <div style="margin-bottom: 20px;">
+            <button id="btn-nueva-recurrencia">➕ Nueva Recurrencia</button>
+            <button id="btn-generar-ahora">🔄 Generar reservas pendientes ahora</button>
+        </div>
+        <div id="recurrentes-container">
+            <table id="tabla-recurrentes" style="width:100%;">
+                <thead>
+                    <tr><th>ID</th><th>Cliente</th><th>Día</th><th>Horario</th><th>Canchas</th><th>Adelanto</th><th>Vigencia</th><th>Activo</th><th>Acciones</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
-<!-- Modal con campos de hora en formato AM/PM y botones -->
+<!-- Modal para crear/editar recurrencia -->
+<div id="modal-recurrencia" class="modal">
+    <div class="modal-content" style="min-width: 500px;">
+        <h3 id="modal-title">Nueva Reserva Recurrente</h3>
+        <label>Cliente:</label>
+        <select id="recur-cliente"><option value="">(Sin cliente)</option></select><br>
+        <label>Día de la semana:</label>
+        <select id="recur-dia">
+            <option value="0">Lunes</option><option value="1">Martes</option><option value="2">Miércoles</option>
+            <option value="3">Jueves</option><option value="4">Viernes</option><option value="5">Sábado</option>
+            <option value="6">Domingo</option>
+        </select><br>
+        <label>Hora Inicio: <input type="time" id="recur-hora-inicio" step="60"></label><br>
+        <label>Hora Fin: <input type="time" id="recur-hora-fin" step="60"></label><br>
+        <label>Responsable: <input type="text" id="recur-responsable"></label><br>
+        <label>Canchas (Ctrl+clic para múltiples):</label>
+        <select id="recur-canchas" multiple size="6"></select><br>
+        <label>Adelanto semanal (S/): <input type="number" id="recur-adelanto" step="0.01" value="0"></label><br>
+        <label>Vigencia desde: <input type="date" id="recur-fecha-inicio"></label><br>
+        <label>Vigencia hasta (opcional): <input type="date" id="recur-fecha-fin"></label><br>
+        <label><input type="checkbox" id="recur-activo" checked> Activo</label><br>
+        <button id="guardar-recurrencia">Guardar</button>
+        <button id="cancelar-recurrencia">Cancelar</button>
+    </div>
+</div>
+
+<!-- Modal reserva normal (completo) -->
 <div id="modal-reserva" class="modal">
     <div class="modal-content">
         <h3>Nueva Reserva</h3>
@@ -71,38 +150,28 @@
     </div>
 </div>
 
+<script>
+    // Función para cambiar entre pestañas
+    window.openTab = function(evt, tabName) {
+        var i, tabcontent, tablinks;
+        tabcontent = document.getElementsByClassName("tabcontent");
+        for (i = 0; i < tabcontent.length; i++) {
+            tabcontent[i].style.display = "none";
+        }
+        tablinks = document.getElementsByClassName("tablinks");
+        for (i = 0; i < tablinks.length; i++) {
+            tablinks[i].className = tablinks[i].className.replace(" active", "");
+        }
+        document.getElementById(tabName).style.display = "block";
+        evt.currentTarget.className += " active";
+    }
+</script>
+
 <script type="module">
     import { supabase } from './supabase-client.js';
-    import { initAdminView } from './script.js';
-    
-    // Inicializar la vista de administración (reservas, slots, etc.)
+    import { initAdminView, initRecurrentesView } from './script.js';
     initAdminView(supabase);
-    
-    // === MANTENER ACTIVO EL PLAN GRATUITO DE SUPABASE ===
-    // Realiza una consulta mínima cada 24 horas para evitar la suspensión por inactividad.
-    const KEEP_ALIVE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 horas
-    
-    async function keepAlive() {
-        try {
-            // Consulta ligera: solo pide la cabecera (head: true) para no traer datos
-            const { error } = await supabase
-                .from('canchas')
-                .select('id', { count: 'exact', head: true });
-            if (error) {
-                console.warn('⚠️ Keep-alive falló:', error.message);
-            } else {
-                console.log('✅ Keep-alive exitoso - ' + new Date().toLocaleString());
-            }
-        } catch (err) {
-            console.error('❌ Error en keep-alive:', err);
-        }
-    }
-    
-    // Ejecutar inmediatamente al cargar la página (opcional, pero recomendado)
-    keepAlive();
-    
-    // Programar la tarea diaria
-    setInterval(keepAlive, KEEP_ALIVE_INTERVAL_MS);
+    initRecurrentesView(supabase);
 </script>
 </body>
 </html>
