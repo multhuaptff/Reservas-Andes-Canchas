@@ -1,4 +1,4 @@
-// script.js - Versión definitiva con formato 12h AM/PM, keep-alive y reservas recurrentes
+// script.js - Versión definitiva con formato 12h AM/PM, keep-alive y reservas recurrentes (mejorada)
 let supabaseClient;
 let fechaActual = new Date().toISOString().slice(0,10);
 let canchas = [];
@@ -256,10 +256,19 @@ async function cargarCanchasParaRecurrentes() {
 
 async function cargarRecurrentes() {
     const { data, error } = await supabaseClient.from('reservas_recurrentes').select('*').order('id');
-    if (error) { console.error(error); return; }
+    if (error) {
+        console.error('Error cargando recurrentes:', error);
+        const tbody = document.querySelector('#tabla-recurrentes tbody');
+        tbody.innerHTML = '<tr><td colspan="9">Error al cargar las recurrencias. Verifica que la tabla exista en Supabase.</td></tr>';
+        return;
+    }
     recurrentes = data;
     const tbody = document.querySelector('#tabla-recurrentes tbody');
     tbody.innerHTML = '';
+    if (recurrentes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9">No hay reservas recurrentes registradas.</td></tr>';
+        return;
+    }
     for (let r of recurrentes) {
         const row = tbody.insertRow();
         row.insertCell(0).innerText = r.id;
@@ -282,16 +291,36 @@ async function cargarRecurrentes() {
         row.insertCell(5).innerText = `S/ ${r.adelanto_semanal}`;
         row.insertCell(6).innerText = `${r.fecha_inicio} - ${r.fecha_fin || 'indefinido'}`;
         row.insertCell(7).innerText = r.activo ? '✅ Activo' : '❌ Inactivo';
+
+        // Celda de acciones con botones estilizados
+        const cellAcciones = row.insertCell(8);
         const btnEditar = document.createElement('button');
         btnEditar.innerText = '✏️';
+        btnEditar.className = 'btn-accion';
+        btnEditar.style.margin = '2px';
+        btnEditar.style.padding = '4px 8px';
+        btnEditar.style.cursor = 'pointer';
+        btnEditar.title = 'Editar recurrencia';
         btnEditar.onclick = () => editarRecurrencia(r);
+
         const btnEliminar = document.createElement('button');
         btnEliminar.innerText = '🗑️';
+        btnEliminar.className = 'btn-accion';
+        btnEliminar.style.margin = '2px';
+        btnEliminar.style.padding = '4px 8px';
+        btnEliminar.style.cursor = 'pointer';
+        btnEliminar.title = 'Eliminar recurrencia';
         btnEliminar.onclick = () => eliminarRecurrencia(r.id);
+
         const btnSkip = document.createElement('button');
-        btnSkip.innerText = '⛔ Cancelar semana';
+        btnSkip.innerText = '⛔';
+        btnSkip.className = 'btn-accion';
+        btnSkip.style.margin = '2px';
+        btnSkip.style.padding = '4px 8px';
+        btnSkip.style.cursor = 'pointer';
+        btnSkip.title = 'Cancelar semana específica';
         btnSkip.onclick = () => cancelarSemana(r);
-        const cellAcciones = row.insertCell(8);
+
         cellAcciones.appendChild(btnEditar);
         cellAcciones.appendChild(btnEliminar);
         cellAcciones.appendChild(btnSkip);
@@ -375,14 +404,20 @@ async function eliminarRecurrencia(id) {
         // Eliminar reservas futuras asociadas (recurrente_id)
         await supabaseClient.from('reservas').delete().eq('recurrente_id', id).gte('fecha', new Date().toISOString().slice(0,10));
         await cargarRecurrentes();
+        alert('Recurrencia eliminada');
     }
 }
 
 async function cancelarSemana(recur) {
     const diasNom = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+    // Crear un diálogo personalizado con input date
     const fechaStr = prompt(`Ingrese la fecha a cancelar (YYYY-MM-DD). Debe ser ${diasNom[recur.dia_semana]}:`, new Date().toISOString().slice(0,10));
     if (!fechaStr) return;
     const fecha = new Date(fechaStr);
+    if (isNaN(fecha.getTime())) {
+        alert('Fecha inválida. Use formato YYYY-MM-DD');
+        return;
+    }
     // getDay(): 0 = domingo, 1 = lunes, ... 6 = sábado
     let diaSemanaJS = fecha.getDay();
     let diaSemanaRecur = recur.dia_semana; // 0=lunes, 6=domingo
