@@ -74,7 +74,35 @@
 <script type="module">
     import { supabase } from './supabase-client.js';
     import { initAdminView } from './script.js';
+    
+    // Inicializar la vista de administración (reservas, slots, etc.)
     initAdminView(supabase);
+    
+    // === MANTENER ACTIVO EL PLAN GRATUITO DE SUPABASE ===
+    // Realiza una consulta mínima cada 24 horas para evitar la suspensión por inactividad.
+    const KEEP_ALIVE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 horas
+    
+    async function keepAlive() {
+        try {
+            // Consulta ligera: solo pide la cabecera (head: true) para no traer datos
+            const { error } = await supabase
+                .from('canchas')
+                .select('id', { count: 'exact', head: true });
+            if (error) {
+                console.warn('⚠️ Keep-alive falló:', error.message);
+            } else {
+                console.log('✅ Keep-alive exitoso - ' + new Date().toLocaleString());
+            }
+        } catch (err) {
+            console.error('❌ Error en keep-alive:', err);
+        }
+    }
+    
+    // Ejecutar inmediatamente al cargar la página (opcional, pero recomendado)
+    keepAlive();
+    
+    // Programar la tarea diaria
+    setInterval(keepAlive, KEEP_ALIVE_INTERVAL_MS);
 </script>
 </body>
 </html>
