@@ -1,4 +1,4 @@
-// script.js - Versión definitiva con formato 12h AM/PM y keep-alive diario
+// script.js - Versión definitiva con formato 12h AM/PM, keep-alive y reservas recurrentes
 let supabaseClient;
 let fechaActual = new Date().toISOString().slice(0,10);
 let canchas = [];
@@ -10,6 +10,10 @@ let currentCanchaId = null;
 let currentFecha = null;
 let horaInicioActual = null;
 let horaFinActual = null;
+
+// ==================== RESERVAS RECURRENTES ====================
+let recurrentes = [];
+let editingRecurrenteId = null;
 
 // --- Conversión y formato de horas ---
 function stringToDate(horaStr) {
@@ -142,6 +146,17 @@ export async function initAdminView(supabase) {
     console.log('Vista administrador inicializada');
 }
 
+export async function initRecurrentesView(supabase) {
+    supabaseClient = supabase;
+    await cargarClientesParaRecurrentes();
+    await cargarCanchasParaRecurrentes();
+    await cargarRecurrentes();
+    document.getElementById('btn-nueva-recurrencia').onclick = () => mostrarModalRecurrencia();
+    document.getElementById('btn-generar-ahora').onclick = () => generarReservasAhora();
+    document.getElementById('guardar-recurrencia').onclick = () => guardarRecurrencia();
+    document.getElementById('cancelar-recurrencia').onclick = () => cerrarModalRecurrencia();
+}
+
 function setupCommonControls() {
     const hoy = new Date();
     const year = hoy.getFullYear();
@@ -212,6 +227,193 @@ async function cargarReservas() {
     if (error) console.error(error);
     else reservas = data;
 }
+
+// ==================== RESERVAS RECURRENTES: funciones auxiliares ====================
+async function cargarClientesParaRecurrentes() {
+    const { data, error } = await supabaseClient.from('clientes').select('id, nombre');
+    if (!error && data) {
+        const select = document.getElementById('recur-cliente');
+        select.innerHTML = '<option value="">(Sin cliente)</option>';
+        data.forEach(c => {
+            select.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
+        });
+    }
+}
+
+async function cargarCanchasParaRecurrentes() {
+    const { data, error } = await supabaseClient.from('canchas').select('id, nombre').order('orden');
+    if (!error && data) {
+        const select = document.getElementById('recur-canchas');
+        select.innerHTML = '';
+        data.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.nombre;
+            select.appendChild(opt);
+        });
+    }
+}
+
+async function cargarRecurrentes() {
+    const { data, error } = await supabaseClient.from('reservas_recurrentes').select('*').order('id');
+    if (error) { console.error(error); return; }
+    recurrentes = data;
+    const tbody = document.querySelector('#tabla-recurrentes tbody');
+    tbody.innerHTML = '';
+    for (let r of recurrentes) {
+        const row = tbody.insertRow();
+        row.insertCell(0).innerText = r.id;
+        let clienteNombre = '';
+        if (r.cliente_id) {
+            const { data: cli } = await supabaseClient.from('clientes').select('nombre').eq('id', r.cliente_id).single();
+            clienteNombre = cli?.nombre || '';
+        }
+        row.insertCell(1).innerText = clienteNombre || '(Sin cliente)';
+        const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+        row.insertCell(2).innerText = dias[r.dia_semana];
+        row.insertCell(3).innerText = `${r.hora_inicio.slice(0,5)} - ${r.hora_fin.slice(0,5)}`;
+        let canchaNombres = [];
+        const ids = JSON.parse(r.cancha_ids);
+        for (let cid of ids) {
+            const { data: can } = await supabaseClient.from('canchas').select('nombre').eq('id', cid).single();
+            if (can) canchaNombres.push(can.nombre);
+        }
+        row.insertCell(4).innerText = canchaNombres.join(', ');
+        row.insertCell(5).innerText = `S/ ${r.adelanto_semanal}`;
+        row.insertCell(6).innerText = `${r.fecha_inicio} - ${r.fecha_fin || 'indefinido'}`;
+        row.insertCell(7).innerText = r.activo ? '✅ Activo' : '❌ Inactivo';
+        const btnEditar = document.createElement('button');
+        btnEditar.innerText = '✏️';
+        btnEditar.onclick = () => editarRecurrencia(r);
+        const btnEliminar = document.createElement('button');
+        btnEliminar.innerText = '🗑️';
+        btnEliminar.onclick = () => eliminarRecurrencia(r.id);
+        const btnSkip = document.createElement('button');
+        btnSkip.innerText = '⛔ Cancelar semana';
+        btnSkip.onclick = () => cancelarSemana(r);
+        const cellAcciones = row.insertCell(8);
+        cellAcciones.appendChild(btnEditar);
+        cellAcciones.appendChild(btnEliminar);
+        cellAcciones.appendChild(btnSkip);
+    }
+}
+
+function mostrarModalRecurrencia(recur = null) {
+    editingRecurrenteId = recur ? recur.id : null;
+    document.getElementById('modal-title').innerText = recur ? 'Editar Recurrencia' : 'Nueva Recurrencia';
+    document.getElementById('recur-cliente').value = recur?.cliente_id || '';
+    document.getElementById('recur-dia').value = recur?.dia_semana || '0';
+    document.getElementById('recur-hora-inicio').value = recur?.hora_inicio || '16:00';
+    document.getElementById('recur-hora-fin').value = recur?.hora_fin || '19:00';
+    document.getElementById('recur-responsable').value = recur?.responsable || '';
+    document.getElementById('recur-adelanto').value = recur?.adelanto_semanal || 0;
+    document.getElementById('recur-fecha-inicio').value = recur?.fecha_inicio || new Date().toISOString().slice(0,10);
+    document.getElementById('recur-fecha-fin').value = recur?.fecha_fin || '';
+    document.getElementById('recur-activo').checked = recur?.activo !== false;
+    // Seleccionar canchas
+    const idsSeleccionados = recur ? JSON.parse(recur.cancha_ids) : [];
+    const selectCanchas = document.getElementById('recur-canchas');
+    for (let i = 0; i < selectCanchas.options.length; i++) {
+        selectCanchas.options[i].selected = idsSeleccionados.includes(parseInt(selectCanchas.options[i].value));
+    }
+    document.getElementById('modal-recurrencia').style.display = 'flex';
+}
+
+function cerrarModalRecurrencia() {
+    document.getElementById('modal-recurrencia').style.display = 'none';
+    editingRecurrenteId = null;
+}
+
+async function guardarRecurrencia() {
+    const cliente_id = document.getElementById('recur-cliente').value || null;
+    const dia_semana = parseInt(document.getElementById('recur-dia').value);
+    const hora_inicio = document.getElementById('recur-hora-inicio').value;
+    const hora_fin = document.getElementById('recur-hora-fin').value;
+    const responsable = document.getElementById('recur-responsable').value.trim();
+    if (!responsable) { alert('Responsable requerido'); return; }
+    const adelanto_semanal = parseFloat(document.getElementById('recur-adelanto').value);
+    const fecha_inicio = document.getElementById('recur-fecha-inicio').value;
+    const fecha_fin = document.getElementById('recur-fecha-fin').value || null;
+    const activo = document.getElementById('recur-activo').checked;
+    const cancha_ids = Array.from(document.getElementById('recur-canchas').selectedOptions).map(opt => parseInt(opt.value));
+    if (cancha_ids.length === 0) { alert('Seleccione al menos una cancha'); return; }
+
+    const data = {
+        cliente_id: cliente_id ? parseInt(cliente_id) : null,
+        dia_semana,
+        hora_inicio,
+        hora_fin,
+        responsable,
+        adelanto_semanal,
+        fecha_inicio,
+        fecha_fin,
+        activo,
+        cancha_ids: JSON.stringify(cancha_ids),
+        grupo_id: editingRecurrenteId ? undefined : crypto.randomUUID()
+    };
+    let error;
+    if (editingRecurrenteId) {
+        const { error: err } = await supabaseClient.from('reservas_recurrentes').update(data).eq('id', editingRecurrenteId);
+        error = err;
+    } else {
+        const { error: err } = await supabaseClient.from('reservas_recurrentes').insert(data);
+        error = err;
+    }
+    if (error) alert('Error: ' + error.message);
+    else {
+        cerrarModalRecurrencia();
+        await cargarRecurrentes();
+        alert('Recurrencia guardada');
+    }
+}
+
+async function eliminarRecurrencia(id) {
+    if (!confirm('¿Eliminar esta recurrencia? También se eliminarán las reservas futuras generadas.')) return;
+    const { error } = await supabaseClient.from('reservas_recurrentes').delete().eq('id', id);
+    if (error) alert('Error: ' + error.message);
+    else {
+        // Eliminar reservas futuras asociadas (recurrente_id)
+        await supabaseClient.from('reservas').delete().eq('recurrente_id', id).gte('fecha', new Date().toISOString().slice(0,10));
+        await cargarRecurrentes();
+    }
+}
+
+async function cancelarSemana(recur) {
+    const diasNom = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+    const fechaStr = prompt(`Ingrese la fecha a cancelar (YYYY-MM-DD). Debe ser ${diasNom[recur.dia_semana]}:`, new Date().toISOString().slice(0,10));
+    if (!fechaStr) return;
+    const fecha = new Date(fechaStr);
+    // getDay(): 0 = domingo, 1 = lunes, ... 6 = sábado
+    let diaSemanaJS = fecha.getDay();
+    let diaSemanaRecur = recur.dia_semana; // 0=lunes, 6=domingo
+    let mapping = { 0:6, 1:0, 2:1, 3:2, 4:3, 5:4, 6:5 };
+    if (mapping[diaSemanaJS] !== diaSemanaRecur) {
+        alert(`La fecha no es ${diasNom[recur.dia_semana]}`);
+        return;
+    }
+    let skip = recur.skip_dates ? JSON.parse(recur.skip_dates) : [];
+    if (!skip.includes(fechaStr)) {
+        skip.push(fechaStr);
+        const { error } = await supabaseClient.from('reservas_recurrentes').update({ skip_dates: JSON.stringify(skip) }).eq('id', recur.id);
+        if (error) alert('Error: ' + error.message);
+        else {
+            // Eliminar reserva existente para esa fecha
+            await supabaseClient.from('reservas').delete().eq('recurrente_id', recur.id).eq('fecha', fechaStr);
+            await cargarRecurrentes();
+            alert('Semana cancelada');
+        }
+    } else {
+        alert('Ya estaba cancelada');
+    }
+}
+
+async function generarReservasAhora() {
+    // En una implementación completa, se podría llamar a una Edge Function de Supabase
+    // que ejecute la misma lógica que generar_reservas_recurrentes en Python.
+    alert('Esta función requiere una Edge Function en Supabase o usar la versión de escritorio. Por ahora, usa el botón en la app de escritorio.');
+}
+
+// ==================== Fin de funciones de recurrentes ====================
 
 function generarSlots() {
     const minutosSlot = parseInt(document.getElementById('granularidad').value);
@@ -345,7 +547,7 @@ function attachDoubleClick(vista) {
                     });
                 }
 
-                // Configurar botones de hora
+                // Configurar botones de hora (igual que antes)
                 document.getElementById('inicio-mas30').onclick = () => setHoraInicio(ajustarHora(horaInicioActual, 30));
                 document.getElementById('inicio-menos30').onclick = () => setHoraInicio(ajustarHora(horaInicioActual, -30));
                 document.getElementById('inicio-am').onclick = () => {
@@ -445,7 +647,6 @@ function configurarModalDinamico() {
     const cancelarBtn = document.getElementById('cancelar-reserva');
     guardarBtn.onclick = guardarReservaGrupo;
     cancelarBtn.onclick = () => { document.getElementById('modal-reserva').style.display = 'none'; };
-    // Asignar listeners una sola vez para evitar duplicados
     const tipoSelect = document.getElementById('tipo-reserva');
     const clienteSelect = document.getElementById('cliente-id');
     if (tipoSelect) tipoSelect.addEventListener('change', () => actualizarCostoEstimadoModal());
