@@ -1,4 +1,4 @@
-// script.js - Versión definitiva con formato 12h AM/PM
+// script.js - Versión definitiva con formato 12h AM/PM y keep-alive diario
 let supabaseClient;
 let fechaActual = new Date().toISOString().slice(0,10);
 let canchas = [];
@@ -165,6 +165,9 @@ function setupCommonControls() {
         generarSlots();
         renderizarTabla(tipoVistaActual());
     });
+
+    // Iniciar keep-alive diario para mantener activo el plan gratuito de Supabase
+    startKeepAlive();
 }
 
 function tipoVistaActual() {
@@ -374,8 +377,6 @@ function attachDoubleClick(vista) {
                     setHoraFin(newDate);
                 };
 
-                document.getElementById('tipo-reserva').addEventListener('change', () => actualizarCostoEstimadoModal());
-                document.getElementById('cliente-id').addEventListener('change', () => actualizarCostoEstimadoModal());
                 document.getElementById('adelanto').value = '0';
                 document.getElementById('responsable').value = '';
                 document.getElementById('telefono').value = '';
@@ -444,6 +445,11 @@ function configurarModalDinamico() {
     const cancelarBtn = document.getElementById('cancelar-reserva');
     guardarBtn.onclick = guardarReservaGrupo;
     cancelarBtn.onclick = () => { document.getElementById('modal-reserva').style.display = 'none'; };
+    // Asignar listeners una sola vez para evitar duplicados
+    const tipoSelect = document.getElementById('tipo-reserva');
+    const clienteSelect = document.getElementById('cliente-id');
+    if (tipoSelect) tipoSelect.addEventListener('change', () => actualizarCostoEstimadoModal());
+    if (clienteSelect) clienteSelect.addEventListener('change', () => actualizarCostoEstimadoModal());
 }
 
 async function guardarReservaGrupo() {
@@ -548,4 +554,27 @@ async function guardarReservaGrupo() {
         await cargarReservas();
         renderizarTabla('admin');
     }
+}
+
+// ==================== KEEP-ALIVE PARA PLAN GRATUITO ====================
+function startKeepAlive() {
+    const KEEP_ALIVE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 horas
+    async function ping() {
+        if (!supabaseClient) return;
+        try {
+            const { error } = await supabaseClient
+                .from('canchas')
+                .select('id', { count: 'exact', head: true });
+            if (error) {
+                console.warn('⚠️ Keep-alive falló:', error.message);
+            } else {
+                console.log('✅ Keep-alive exitoso -', new Date().toLocaleString());
+            }
+        } catch (err) {
+            console.error('❌ Error en keep-alive:', err);
+        }
+    }
+    // Ejecutar inmediatamente y luego cada 24 horas
+    ping();
+    setInterval(ping, KEEP_ALIVE_INTERVAL_MS);
 }
