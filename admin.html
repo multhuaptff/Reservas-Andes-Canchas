@@ -9,6 +9,7 @@
             overflow: hidden;
             border-bottom: 1px solid #ccc;
             margin-bottom: 20px;
+            position: relative;
         }
         .tab button {
             background-color: inherit;
@@ -21,16 +22,48 @@
             font-weight: bold;
             margin-right: 5px;
             border-radius: 30px 30px 0 0;
+            position: relative;
         }
         .tab button:hover {
             background-color: #ddd;
         }
         .tab button.active {
-            background-color: #2E7D32;
+            background-color: #1B5E20;
             color: white;
+            border-bottom: 3px solid #FF8F00;
         }
-        .tabcontent {
+        /* Badge para la pestaña de recurrentes */
+        .tab .badge {
+            background-color: red;
+            color: white;
+            border-radius: 50%;
+            padding: 2px 6px;
+            font-size: 10px;
+            position: absolute;
+            top: -5px;
+            right: -10px;
             display: none;
+        }
+        .tab button.active .badge {
+            background-color: #FF8F00;
+            color: #1B5E20;
+        }
+        /* Estilo para el modal de cancelación */
+        .modal-cancelar {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1001;
+        }
+        .modal-cancelar .modal-content {
+            background: white;
+            border-radius: 20px;
+            padding: 20px;
+            min-width: 350px;
         }
     </style>
 </head>
@@ -39,7 +72,10 @@
     <h1>🔧 Administración de Reservas</h1>
     <div class="tab">
         <button class="tablinks active" onclick="openTab(event, 'Horarios')">📅 Horarios</button>
-        <button class="tablinks" onclick="openTab(event, 'Recurrentes')">🔄 Reservas Recurrentes</button>
+        <button class="tablinks" onclick="openTab(event, 'Recurrentes')" id="tab-recurrentes-btn">
+            🔄 Reservas Recurrentes
+            <span id="recurrentes-badge" class="badge">!</span>
+        </button>
     </div>
 
     <!-- Pestaña Horarios -->
@@ -62,11 +98,16 @@
         <div style="margin-bottom: 20px;">
             <button id="btn-nueva-recurrencia">➕ Nueva Recurrencia</button>
             <button id="btn-generar-ahora">🔄 Generar reservas pendientes ahora</button>
+            <button id="btn-marcar-ausencias">⏰ Marcar ausencias automáticas</button>
         </div>
         <div id="recurrentes-container">
             <table id="tabla-recurrentes" style="width:100%;">
                 <thead>
-                    <tr><th>ID</th><th>Cliente</th><th>Día</th><th>Horario</th><th>Canchas</th><th>Adelanto</th><th>Vigencia</th><th>Activo</th><th>Acciones</th></tr>
+                    <tr>
+                        <th>ID</th><th>Cliente</th><th>Día</th><th>Horario</th><th>Canchas</th>
+                        <th>Adelanto semanal</th><th>Vigencia</th><th>Activo</th>
+                        <th>Próxima fecha</th><th>Adelanto perdido</th><th>Acciones</th>
+                    </tr>
                 </thead>
                 <tbody></tbody>
             </table>
@@ -74,9 +115,9 @@
     </div>
 </div>
 
-<!-- Modal para crear/editar recurrencia -->
+<!-- Modal para crear/editar recurrencia (con nuevos campos) -->
 <div id="modal-recurrencia" class="modal">
-    <div class="modal-content" style="min-width: 500px;">
+    <div class="modal-content" style="min-width: 550px;">
         <h3 id="modal-title">Nueva Reserva Recurrente</h3>
         <label>Cliente:</label>
         <select id="recur-cliente"><option value="">(Sin cliente)</option></select><br>
@@ -92,11 +133,32 @@
         <label>Canchas (Ctrl+clic para múltiples):</label>
         <select id="recur-canchas" multiple size="6"></select><br>
         <label>Adelanto semanal (S/): <input type="number" id="recur-adelanto" step="0.01" value="0"></label><br>
+        
+        <!-- NUEVOS CAMPOS PARA POLÍTICA DE ADELANTO Y AVISO -->
+        <label>Política de adelanto:</label>
+        <select id="recur-advance-policy">
+            <option value="perdida_sin_aviso">Perder si no avisa</option>
+            <option value="reembolsable_siempre">Reembolsable siempre</option>
+        </select><br>
+        <label>Horas de anticipación requeridas: <input type="number" id="recur-notice-hours" value="24" step="1" min="0" max="168"></label><br>
+        
         <label>Vigencia desde: <input type="date" id="recur-fecha-inicio"></label><br>
         <label>Vigencia hasta (opcional): <input type="date" id="recur-fecha-fin"></label><br>
         <label><input type="checkbox" id="recur-activo" checked> Activo</label><br>
         <button id="guardar-recurrencia">Guardar</button>
         <button id="cancelar-recurrencia">Cancelar</button>
+    </div>
+</div>
+
+<!-- Modal para cancelar semana específica (con aviso) -->
+<div id="modal-cancelar-semana" class="modal-cancelar">
+    <div class="modal-content">
+        <h3>Cancelar semana específica</h3>
+        <label>Fecha (debe ser el día de la semana correspondiente):</label>
+        <input type="date" id="cancel-fecha"><br><br>
+        <label><input type="checkbox" id="cancel-aviso"> Avisó con anticipación (≥ horas requeridas)</label><br><br>
+        <button id="confirmar-cancelacion">Confirmar cancelación</button>
+        <button id="cancelar-cancelacion">Cancelar</button>
     </div>
 </div>
 
@@ -151,7 +213,7 @@
 </div>
 
 <script>
-    // Función para cambiar entre pestañas
+    // Función para cambiar entre pestañas (mejorada para mantener el badge)
     window.openTab = function(evt, tabName) {
         var i, tabcontent, tablinks;
         tabcontent = document.getElementsByClassName("tabcontent");
@@ -164,14 +226,36 @@
         }
         document.getElementById(tabName).style.display = "block";
         evt.currentTarget.className += " active";
+        
+        // Guardar pestaña activa en localStorage
+        localStorage.setItem('activeTab', tabName);
     }
+    
+    // Restaurar pestaña activa al cargar
+    document.addEventListener('DOMContentLoaded', function() {
+        const activeTab = localStorage.getItem('activeTab');
+        if (activeTab && activeTab !== 'Horarios') {
+            const btn = document.querySelector(`.tab button[onclick*="'${activeTab}'"]`);
+            if (btn) btn.click();
+        }
+    });
 </script>
 
 <script type="module">
     import { supabase } from './supabase-client.js';
     import { initAdminView, initRecurrentesView } from './script.js';
+    
+    // Inicializar vistas
     initAdminView(supabase);
     initRecurrentesView(supabase);
+    
+    // Actualizar badge dinámicamente (se llamará desde script.js después de cargar recurrencias)
+    window.updateRecurrentesBadge = function(hasActivas) {
+        const badge = document.getElementById('recurrentes-badge');
+        if (badge) {
+            badge.style.display = hasActivas ? 'inline-block' : 'none';
+        }
+    };
 </script>
 </body>
 </html>
