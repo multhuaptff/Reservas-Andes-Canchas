@@ -1,4 +1,4 @@
-// script.js - Versión definitiva con formato 12h AM/PM, keep-alive y reservas recurrentes (mejorada)
+// script.js - Versión definitiva con RPC para reservas recurrentes
 let supabaseClient;
 let fechaActual = new Date().toISOString().slice(0,10);
 let canchas = [];
@@ -14,7 +14,23 @@ let horaFinActual = null;
 // ==================== RESERVAS RECURRENTES ====================
 let recurrentes = [];
 let editingRecurrenteId = null;
-let currentCancelRecur = null;  // para el modal de cancelación
+let currentCancelRecur = null;
+
+// --- Utilidades de fechas (UTC) ---
+function formatDateToISO(date) {
+    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+}
+
+function parseISODate(dateStr) {
+    if (!dateStr) return null;
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(Date.UTC(year, month-1, day));
+}
+
+function getTodayUTC() {
+    const now = new Date();
+    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
 
 // --- Conversión y formato de horas ---
 function stringToDate(horaStr) {
@@ -28,7 +44,6 @@ function dateToTimeString(date) {
     return `${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2,'0')}`;
 }
 
-// Formato 12h (ej: 8:00 PM)
 function formatAMPM(date) {
     let hours = date.getHours();
     let minutes = date.getMinutes();
@@ -40,10 +55,12 @@ function formatAMPM(date) {
 }
 
 function updateHoraInicioDisplay() {
-    document.getElementById('hora-inicio').value = formatAMPM(horaInicioActual);
+    const elem = document.getElementById('hora-inicio');
+    if (elem) elem.value = formatAMPM(horaInicioActual);
 }
 function updateHoraFinDisplay() {
-    document.getElementById('hora-fin').value = formatAMPM(horaFinActual);
+    const elem = document.getElementById('hora-fin');
+    if (elem) elem.value = formatAMPM(horaFinActual);
 }
 function ajustarHora(date, minutos) {
     return new Date(date.getTime() + minutos * 60000);
@@ -125,7 +142,7 @@ async function verificarConflictos(canchaIds, fecha, horaIniDate, horaFinDate) {
 // --- Inicialización de vistas ---
 export async function initPublicView(supabase) {
     supabaseClient = supabase;
-    setupCommonControls();
+    await setupCommonControls();
     await cargarCanchas();
     await cargarPrecios();
     await cargarReservas();
@@ -136,7 +153,7 @@ export async function initPublicView(supabase) {
 
 export async function initAdminView(supabase) {
     supabaseClient = supabase;
-    setupCommonControls();
+    await setupCommonControls();
     await cargarCanchas();
     await cargarPrecios();
     await cargarClientes();
@@ -153,41 +170,58 @@ export async function initRecurrentesView(supabase) {
     await cargarCanchasParaRecurrentes();
     await cargarRecurrentes();
     
-    document.getElementById('btn-nueva-recurrencia').onclick = () => mostrarModalRecurrencia();
-    document.getElementById('btn-generar-ahora').onclick = () => generarReservasAhora();
-    document.getElementById('btn-marcar-ausencias').onclick = () => marcarAusenciasAutomaticas();
-    document.getElementById('guardar-recurrencia').onclick = () => guardarRecurrencia();
-    document.getElementById('cancelar-recurrencia').onclick = () => cerrarModalRecurrencia();
+    const btnNueva = document.getElementById('btn-nueva-recurrencia');
+    if (btnNueva) btnNueva.onclick = () => mostrarModalRecurrencia();
+    const btnGenerar = document.getElementById('btn-generar-ahora');
+    if (btnGenerar) btnGenerar.onclick = () => generarReservasAhora();
+    const btnMarcar = document.getElementById('btn-marcar-ausencias');
+    if (btnMarcar) btnMarcar.onclick = () => marcarAusenciasAutomaticas();
+    const btnGuardar = document.getElementById('guardar-recurrencia');
+    if (btnGuardar) btnGuardar.onclick = () => guardarRecurrencia();
+    const btnCancelar = document.getElementById('cancelar-recurrencia');
+    if (btnCancelar) btnCancelar.onclick = () => cerrarModalRecurrencia();
     
-    // Configurar modal de cancelación
-    document.getElementById('confirmar-cancelacion').onclick = () => confirmarCancelacionSemana();
-    document.getElementById('cancelar-cancelacion').onclick = () => cerrarModalCancelacion();
+    const btnConfirmarCancel = document.getElementById('confirmar-cancelacion');
+    if (btnConfirmarCancel) btnConfirmarCancel.onclick = () => confirmarCancelacionSemana();
+    const btnCancelarCancel = document.getElementById('cancelar-cancelacion');
+    if (btnCancelarCancel) btnCancelarCancel.onclick = () => cerrarModalCancelacion();
 }
 
-function setupCommonControls() {
+async function setupCommonControls() {
     const hoy = new Date();
     const year = hoy.getFullYear();
     const month = String(hoy.getMonth() + 1).padStart(2, '0');
     const day = String(hoy.getDate()).padStart(2, '0');
     fechaActual = `${year}-${month}-${day}`;
     const fechaInput = document.getElementById('fecha');
-    fechaInput.value = fechaActual;
-    fechaInput.addEventListener('change', () => {
-        fechaActual = fechaInput.value;
-        cargarReservas().then(() => renderizarTabla(tipoVistaActual()));
-    });
-    document.getElementById('btn-anterior').onclick = () => cambiarFecha(-1);
-    document.getElementById('btn-siguiente').onclick = () => cambiarFecha(1);
-    document.getElementById('btn-hoy').onclick = () => {
-        fechaActual = `${year}-${month}-${day}`;
-        fechaInput.value = fechaActual;
-        cargarReservas().then(() => renderizarTabla(tipoVistaActual()));
-    };
-    document.getElementById('granularidad').addEventListener('change', () => {
-        generarSlots();
-        renderizarTabla(tipoVistaActual());
-    });
-
+    if (fechaInput) fechaInput.value = fechaActual;
+    if (fechaInput) {
+        fechaInput.addEventListener('change', async () => {
+            fechaActual = fechaInput.value;
+            await cargarReservas();
+            renderizarTabla(tipoVistaActual());
+        });
+    }
+    const btnAnterior = document.getElementById('btn-anterior');
+    if (btnAnterior) btnAnterior.onclick = () => cambiarFecha(-1);
+    const btnSiguiente = document.getElementById('btn-siguiente');
+    if (btnSiguiente) btnSiguiente.onclick = () => cambiarFecha(1);
+    const btnHoy = document.getElementById('btn-hoy');
+    if (btnHoy) {
+        btnHoy.onclick = async () => {
+            fechaActual = `${year}-${month}-${day}`;
+            if (fechaInput) fechaInput.value = fechaActual;
+            await cargarReservas();
+            renderizarTabla(tipoVistaActual());
+        };
+    }
+    const granularidad = document.getElementById('granularidad');
+    if (granularidad) {
+        granularidad.addEventListener('change', () => {
+            generarSlots();
+            renderizarTabla(tipoVistaActual());
+        });
+    }
     startKeepAlive();
 }
 
@@ -195,7 +229,7 @@ function tipoVistaActual() {
     return document.getElementById('modal-reserva') !== null ? 'admin' : 'public';
 }
 
-function cambiarFecha(delta) {
+async function cambiarFecha(delta) {
     const [year, month, day] = fechaActual.split('-').map(Number);
     const date = new Date(year, month - 1, day);
     date.setDate(date.getDate() + delta);
@@ -203,8 +237,10 @@ function cambiarFecha(delta) {
     const newMonth = String(date.getMonth() + 1).padStart(2, '0');
     const newDay = String(date.getDate()).padStart(2, '0');
     fechaActual = `${newYear}-${newMonth}-${newDay}`;
-    document.getElementById('fecha').value = fechaActual;
-    cargarReservas().then(() => renderizarTabla(tipoVistaActual()));
+    const fechaInput = document.getElementById('fecha');
+    if (fechaInput) fechaInput.value = fechaActual;
+    await cargarReservas();
+    renderizarTabla(tipoVistaActual());
 }
 
 async function cargarCanchas() {
@@ -231,15 +267,17 @@ async function cargarReservas() {
     else reservas = data;
 }
 
-// ==================== RESERVAS RECURRENTES: funciones auxiliares ====================
+// ==================== RESERVAS RECURRENTES ====================
 async function cargarClientesParaRecurrentes() {
     const { data, error } = await supabaseClient.from('clientes').select('id, nombre');
     if (!error && data) {
         const select = document.getElementById('recur-cliente');
-        select.innerHTML = '<option value="">(Sin cliente)</option>';
-        data.forEach(c => {
-            select.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
-        });
+        if (select) {
+            select.innerHTML = '<option value="">(Sin cliente)</option>';
+            data.forEach(c => {
+                select.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
+            });
+        }
     }
 }
 
@@ -247,24 +285,27 @@ async function cargarCanchasParaRecurrentes() {
     const { data, error } = await supabaseClient.from('canchas').select('id, nombre').order('orden');
     if (!error && data) {
         const select = document.getElementById('recur-canchas');
-        select.innerHTML = '';
-        data.forEach(c => {
-            const opt = document.createElement('option');
-            opt.value = c.id;
-            opt.textContent = c.nombre;
-            select.appendChild(opt);
-        });
+        if (select) {
+            select.innerHTML = '';
+            data.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.nombre;
+                select.appendChild(opt);
+            });
+        }
     }
 }
 
-// Función para calcular próxima fecha efectiva de una recurrencia
-function calcularProximaFecha(recur, hoy) {
+function calcularProximaFecha(recur, hoyUTC) {
     const skipDates = recur.skip_dates ? JSON.parse(recur.skip_dates) : [];
-    for (let i = 0; i <= 60; i++) {
-        const testDate = new Date(hoy);
-        testDate.setDate(hoy.getDate() + i);
-        if (testDate.getDay() === (recur.dia_semana === 6 ? 0 : recur.dia_semana + 1)) { // convertir a getDay()
-            const fechaStr = testDate.toISOString().slice(0,10);
+    for (let i = 0; i <= 365; i++) {
+        const testDate = new Date(hoyUTC);
+        testDate.setUTCDate(hoyUTC.getUTCDate() + i);
+        let diaSemanaJS = testDate.getUTCDay();
+        let mapping = {0:6,1:0,2:1,3:2,4:3,5:4,6:5};
+        if (mapping[diaSemanaJS] === recur.dia_semana) {
+            const fechaStr = formatDateToISO(testDate);
             if (!skipDates.includes(fechaStr)) {
                 return testDate;
             }
@@ -275,14 +316,15 @@ function calcularProximaFecha(recur, hoy) {
 
 async function cargarRecurrentes() {
     const { data, error } = await supabaseClient.from('reservas_recurrentes').select('*').order('id');
+    const tbody = document.querySelector('#tabla-recurrentes tbody');
     if (error) {
         console.error('Error cargando recurrentes:', error);
-        const tbody = document.querySelector('#tabla-recurrentes tbody');
-        tbody.innerHTML = '<tr><td colspan="11">Error al cargar las recurrencias.</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="11">Error al cargar las recurrencias.</td></tr>';
+        if (window.updateRecurrentesBadge) window.updateRecurrentesBadge(false);
         return;
     }
     recurrentes = data;
-    const tbody = document.querySelector('#tabla-recurrentes tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
     if (recurrentes.length === 0) {
         tbody.innerHTML = '<tr><td colspan="11">No hay reservas recurrentes registradas.</td></tr>';
@@ -290,29 +332,22 @@ async function cargarRecurrentes() {
         return;
     }
     
-    const hoy = new Date();
-    hoy.setHours(0,0,0,0);
+    const hoyUTC = getTodayUTC();
     let tieneActivas = false;
     
     for (let r of recurrentes) {
         if (r.activo) tieneActivas = true;
         const row = tbody.insertRow();
-        
-        // ID
         row.insertCell(0).innerText = r.id;
-        // Cliente
         let clienteNombre = '';
         if (r.cliente_id) {
             const { data: cli } = await supabaseClient.from('clientes').select('nombre').eq('id', r.cliente_id).single();
             clienteNombre = cli?.nombre || '';
         }
         row.insertCell(1).innerText = clienteNombre || '(Sin cliente)';
-        // Día
         const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
         row.insertCell(2).innerText = dias[r.dia_semana];
-        // Horario
         row.insertCell(3).innerText = `${r.hora_inicio.slice(0,5)} - ${r.hora_fin.slice(0,5)}`;
-        // Canchas
         let canchaNombres = [];
         const ids = JSON.parse(r.cancha_ids);
         for (let cid of ids) {
@@ -320,24 +355,16 @@ async function cargarRecurrentes() {
             if (can) canchaNombres.push(can.nombre);
         }
         row.insertCell(4).innerText = canchaNombres.join(', ');
-        // Adelanto semanal
         row.insertCell(5).innerText = `S/ ${r.adelanto_semanal}`;
-        // Vigencia
         row.insertCell(6).innerText = `${r.fecha_inicio} - ${r.fecha_fin || 'indefinido'}`;
-        // Activo
         row.insertCell(7).innerText = r.activo ? '✅ Activo' : '❌ Inactivo';
-        
-        // Próxima fecha
-        const proxFecha = calcularProximaFecha(r, hoy);
+        const proxFecha = calcularProximaFecha(r, hoyUTC);
         row.insertCell(8).innerText = proxFecha ? proxFecha.toLocaleDateString('es-CL') : 'No disponible';
-        
-        // Adelanto perdido acumulado
         let lost = [];
         if (r.lost_advance_dates) lost = JSON.parse(r.lost_advance_dates);
         const perdidoTotal = lost.length * r.adelanto_semanal;
         row.insertCell(9).innerText = `S/ ${perdidoTotal.toFixed(2)}`;
         
-        // Botones de acción
         const cellAcciones = row.insertCell(10);
         const btnEditar = document.createElement('button');
         btnEditar.innerText = '✏️';
@@ -345,87 +372,72 @@ async function cargarRecurrentes() {
         btnEditar.style.margin = '2px';
         btnEditar.style.padding = '4px 8px';
         btnEditar.style.cursor = 'pointer';
-        btnEditar.title = 'Editar recurrencia';
         btnEditar.onclick = () => editarRecurrencia(r);
-        
         const btnEliminar = document.createElement('button');
         btnEliminar.innerText = '🗑️';
         btnEliminar.className = 'btn-accion';
-        btnEliminar.style.margin = '2px';
-        btnEliminar.style.padding = '4px 8px';
-        btnEliminar.style.cursor = 'pointer';
-        btnEliminar.title = 'Eliminar recurrencia';
         btnEliminar.onclick = () => eliminarRecurrencia(r.id);
-        
         const btnCancelar = document.createElement('button');
         btnCancelar.innerText = '⛔';
         btnCancelar.className = 'btn-accion';
-        btnCancelar.style.margin = '2px';
-        btnCancelar.style.padding = '4px 8px';
-        btnCancelar.style.cursor = 'pointer';
-        btnCancelar.title = 'Cancelar semana específica';
         btnCancelar.onclick = () => abrirModalCancelacionSemana(r);
-        
         const btnAsistencia = document.createElement('button');
         btnAsistencia.innerText = '📋';
         btnAsistencia.className = 'btn-accion';
-        btnAsistencia.style.margin = '2px';
-        btnAsistencia.style.padding = '4px 8px';
-        btnAsistencia.style.cursor = 'pointer';
-        btnAsistencia.title = 'Ver/registrar asistencia';
         btnAsistencia.onclick = () => verAsistenciaRecurrencia(r.id);
-        
         cellAcciones.appendChild(btnEditar);
         cellAcciones.appendChild(btnEliminar);
         cellAcciones.appendChild(btnCancelar);
         cellAcciones.appendChild(btnAsistencia);
     }
-    
     if (window.updateRecurrentesBadge) window.updateRecurrentesBadge(tieneActivas);
 }
 
-// Mostrar modal de cancelación
 function abrirModalCancelacionSemana(recur) {
     currentCancelRecur = recur;
     const modal = document.getElementById('modal-cancelar-semana');
+    if (!modal) return;
     const fechaInput = document.getElementById('cancel-fecha');
-    fechaInput.value = new Date().toISOString().slice(0,10);
-    // Configurar el texto del checkbox dinámicamente
+    if (fechaInput) fechaInput.value = formatDateToISO(getTodayUTC());
     const avisoCheck = document.getElementById('cancel-aviso');
     const noticeHours = recur.notice_hours || 24;
-    avisoCheck.nextSibling.textContent = ` Avisó con anticipación (≥ ${noticeHours} horas)`;
+    if (avisoCheck && avisoCheck.nextSibling) {
+        avisoCheck.nextSibling.textContent = ` Avisó con anticipación (≥ ${noticeHours} horas)`;
+    }
     modal.style.display = 'flex';
 }
 
 function cerrarModalCancelacion() {
-    document.getElementById('modal-cancelar-semana').style.display = 'none';
+    const modal = document.getElementById('modal-cancelar-semana');
+    if (modal) modal.style.display = 'none';
     currentCancelRecur = null;
 }
 
 async function confirmarCancelacionSemana() {
     if (!currentCancelRecur) return;
     const recur = currentCancelRecur;
-    const fechaStr = document.getElementById('cancel-fecha').value;
-    const avisoConTiempo = document.getElementById('cancel-aviso').checked;
-    
-    const fecha = new Date(fechaStr);
-    if (isNaN(fecha.getTime())) {
+    const fechaStr = document.getElementById('cancel-fecha')?.value;
+    const avisoConTiempo = document.getElementById('cancel-aviso')?.checked || false;
+    if (!fechaStr) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
+        alert('Fecha inválida (use YYYY-MM-DD)');
+        return;
+    }
+    const fecha = parseISODate(fechaStr);
+    if (!fecha) {
         alert('Fecha inválida');
         return;
     }
-    
-    // Validar día de semana
-    let diaSemanaJS = fecha.getDay();
-    let mapping = { 0:6, 1:0, 2:1, 3:2, 4:3, 5:4, 6:5 };
+    let diaSemanaJS = fecha.getUTCDay();
+    let mapping = {0:6,1:0,2:1,3:2,4:3,5:4,6:5};
     if (mapping[diaSemanaJS] !== recur.dia_semana) {
         alert(`La fecha debe ser ${['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][recur.dia_semana]}`);
         return;
     }
-    
-    // Validar horas de anticipación si avisó con tiempo
-    const ahora = new Date();
-    const fechaEvento = new Date(fechaStr + 'T' + recur.hora_inicio);
-    const horasRestantes = (fechaEvento - ahora) / (1000 * 3600);
+    const ahoraUTC = new Date();
+    const [hora, minuto] = recur.hora_inicio.split(':');
+    const fechaEventoUTC = new Date(Date.UTC(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate(), parseInt(hora), parseInt(minuto)));
+    const horasRestantes = (fechaEventoUTC - ahoraUTC) / (1000 * 3600);
     const noticeHours = recur.notice_hours || 24;
     
     let skipDates = recur.skip_dates ? JSON.parse(recur.skip_dates) : [];
@@ -435,9 +447,8 @@ async function confirmarCancelacionSemana() {
         if (!confirm(`Faltan menos de ${noticeHours} horas para la reserva. Si continúa, el adelanto se perderá. ¿Desea cancelar igualmente?`)) {
             return;
         }
-        // Forzar como sin aviso
         if (!lostDates.includes(fechaStr)) lostDates.push(fechaStr);
-        if (skipDates.includes(fechaStr)) skipDates = skipDates.filter(d => d !== fechaStr);
+        skipDates = skipDates.filter(d => d !== fechaStr);
         await supabaseClient.from('reservas_recurrentes').update({
             skip_dates: JSON.stringify(skipDates),
             lost_advance_dates: JSON.stringify(lostDates)
@@ -445,7 +456,7 @@ async function confirmarCancelacionSemana() {
         alert('Semana cancelada SIN aviso. Adelanto perdido.');
     } else if (avisoConTiempo) {
         if (!skipDates.includes(fechaStr)) skipDates.push(fechaStr);
-        if (lostDates.includes(fechaStr)) lostDates = lostDates.filter(d => d !== fechaStr);
+        lostDates = lostDates.filter(d => d !== fechaStr);
         await supabaseClient.from('reservas_recurrentes').update({
             skip_dates: JSON.stringify(skipDates),
             lost_advance_dates: JSON.stringify(lostDates)
@@ -453,70 +464,96 @@ async function confirmarCancelacionSemana() {
         alert('Semana cancelada con aviso. Adelanto conservado.');
     } else {
         if (!lostDates.includes(fechaStr)) lostDates.push(fechaStr);
-        if (skipDates.includes(fechaStr)) skipDates = skipDates.filter(d => d !== fechaStr);
+        skipDates = skipDates.filter(d => d !== fechaStr);
         await supabaseClient.from('reservas_recurrentes').update({
             skip_dates: JSON.stringify(skipDates),
             lost_advance_dates: JSON.stringify(lostDates)
         }).eq('id', recur.id);
         alert('Semana cancelada SIN aviso. Adelanto perdido.');
     }
-    
-    // Eliminar reserva existente para esa fecha
     await supabaseClient.from('reservas').delete().eq('recurrente_id', recur.id).eq('fecha', fechaStr);
     await cargarRecurrentes();
     cerrarModalCancelacion();
 }
 
-// Función para ver asistencia (pendiente de implementar completamente en web)
 async function verAsistenciaRecurrencia(recurId) {
     alert('Funcionalidad de asistencia en desarrollo. Por ahora use la aplicación de escritorio.');
-    // Aquí se podría abrir un modal con las reservas y permitir cambiar estado_asistencia
 }
 
 function mostrarModalRecurrencia(recur = null) {
     editingRecurrenteId = recur ? recur.id : null;
+    const modal = document.getElementById('modal-recurrencia');
+    if (!modal) return;
     document.getElementById('modal-title').innerText = recur ? 'Editar Recurrencia' : 'Nueva Recurrencia';
-    document.getElementById('recur-cliente').value = recur?.cliente_id || '';
-    document.getElementById('recur-dia').value = recur?.dia_semana || '0';
-    document.getElementById('recur-hora-inicio').value = recur?.hora_inicio?.slice(0,5) || '16:00';
-    document.getElementById('recur-hora-fin').value = recur?.hora_fin?.slice(0,5) || '19:00';
-    document.getElementById('recur-responsable').value = recur?.responsable || '';
-    document.getElementById('recur-adelanto').value = recur?.adelanto_semanal || 0;
-    document.getElementById('recur-fecha-inicio').value = recur?.fecha_inicio || new Date().toISOString().slice(0,10);
-    document.getElementById('recur-fecha-fin').value = recur?.fecha_fin || '';
-    document.getElementById('recur-activo').checked = recur?.activo !== false;
-    // Nuevos campos
-    document.getElementById('recur-advance-policy').value = recur?.advance_policy || 'perdida_sin_aviso';
-    document.getElementById('recur-notice-hours').value = recur?.notice_hours || 24;
+    const clienteSelect = document.getElementById('recur-cliente');
+    if (clienteSelect) clienteSelect.value = recur?.cliente_id || '';
+    const diaSelect = document.getElementById('recur-dia');
+    if (diaSelect) diaSelect.value = recur?.dia_semana || '0';
+    const horaInicio = document.getElementById('recur-hora-inicio');
+    if (horaInicio) horaInicio.value = recur?.hora_inicio?.slice(0,5) || '16:00';
+    const horaFin = document.getElementById('recur-hora-fin');
+    if (horaFin) horaFin.value = recur?.hora_fin?.slice(0,5) || '19:00';
+    const responsable = document.getElementById('recur-responsable');
+    if (responsable) responsable.value = recur?.responsable || '';
+    const adelanto = document.getElementById('recur-adelanto');
+    if (adelanto) adelanto.value = recur?.adelanto_semanal || 0;
+    const fechaInicio = document.getElementById('recur-fecha-inicio');
+    if (fechaInicio) fechaInicio.value = recur?.fecha_inicio || formatDateToISO(getTodayUTC());
+    const fechaFin = document.getElementById('recur-fecha-fin');
+    if (fechaFin) fechaFin.value = recur?.fecha_fin || '';
+    const activo = document.getElementById('recur-activo');
+    if (activo) activo.checked = recur?.activo !== false;
+    const policySelect = document.getElementById('recur-advance-policy');
+    if (policySelect) policySelect.value = recur?.advance_policy || 'perdida_sin_aviso';
+    const notice = document.getElementById('recur-notice-hours');
+    if (notice) notice.value = recur?.notice_hours || 24;
     
-    // Seleccionar canchas
     const idsSeleccionados = recur ? JSON.parse(recur.cancha_ids) : [];
     const selectCanchas = document.getElementById('recur-canchas');
-    for (let i = 0; i < selectCanchas.options.length; i++) {
-        selectCanchas.options[i].selected = idsSeleccionados.includes(parseInt(selectCanchas.options[i].value));
+    if (selectCanchas) {
+        for (let i = 0; i < selectCanchas.options.length; i++) {
+            selectCanchas.options[i].selected = idsSeleccionados.includes(parseInt(selectCanchas.options[i].value));
+        }
     }
-    document.getElementById('modal-recurrencia').style.display = 'flex';
+    modal.style.display = 'flex';
 }
 
 function cerrarModalRecurrencia() {
-    document.getElementById('modal-recurrencia').style.display = 'none';
+    const modal = document.getElementById('modal-recurrencia');
+    if (modal) modal.style.display = 'none';
     editingRecurrenteId = null;
 }
 
+// ========== REGENERAR RESERVAS MEDIANTE RPC ==========
+async function regenerarReservasRecurrente(recurrenciaId) {
+    try {
+        const { data, error } = await supabaseClient.rpc('regenerar_reservas_recurrentes', {
+            p_recurrencia_id: recurrenciaId
+        });
+        if (error) throw error;
+        console.log(`Regeneradas ${data} reservas para recurrencia ${recurrenciaId}`);
+        return true;
+    } catch (err) {
+        console.error('Error al regenerar reservas:', err);
+        alert('No se pudo regenerar automáticamente. Las reservas se generarán en la próxima ejecución del temporizador (cada 6 horas).');
+        return false;
+    }
+}
+
 async function guardarRecurrencia() {
-    const cliente_id = document.getElementById('recur-cliente').value || null;
-    const dia_semana = parseInt(document.getElementById('recur-dia').value);
-    const hora_inicio = document.getElementById('recur-hora-inicio').value;
-    const hora_fin = document.getElementById('recur-hora-fin').value;
-    const responsable = document.getElementById('recur-responsable').value.trim();
+    const cliente_id = document.getElementById('recur-cliente')?.value || null;
+    const dia_semana = parseInt(document.getElementById('recur-dia')?.value || '0');
+    const hora_inicio = document.getElementById('recur-hora-inicio')?.value;
+    const hora_fin = document.getElementById('recur-hora-fin')?.value;
+    const responsable = document.getElementById('recur-responsable')?.value.trim();
     if (!responsable) { alert('Responsable requerido'); return; }
-    const adelanto_semanal = parseFloat(document.getElementById('recur-adelanto').value);
-    const fecha_inicio = document.getElementById('recur-fecha-inicio').value;
-    const fecha_fin = document.getElementById('recur-fecha-fin').value || null;
-    const activo = document.getElementById('recur-activo').checked;
-    const advance_policy = document.getElementById('recur-advance-policy').value;
-    const notice_hours = parseInt(document.getElementById('recur-notice-hours').value);
-    const cancha_ids = Array.from(document.getElementById('recur-canchas').selectedOptions).map(opt => parseInt(opt.value));
+    const adelanto_semanal = parseFloat(document.getElementById('recur-adelanto')?.value || 0);
+    const fecha_inicio = document.getElementById('recur-fecha-inicio')?.value;
+    const fecha_fin = document.getElementById('recur-fecha-fin')?.value || null;
+    const activo = document.getElementById('recur-activo')?.checked || false;
+    const advance_policy = document.getElementById('recur-advance-policy')?.value || 'perdida_sin_aviso';
+    const notice_hours = parseInt(document.getElementById('recur-notice-hours')?.value || 24);
+    const cancha_ids = Array.from(document.querySelectorAll('#recur-canchas option:checked')).map(opt => parseInt(opt.value));
     if (cancha_ids.length === 0) { alert('Seleccione al menos una cancha'); return; }
 
     const data = {
@@ -535,19 +572,27 @@ async function guardarRecurrencia() {
         grupo_id: editingRecurrenteId ? undefined : crypto.randomUUID()
     };
     
+    let recurrenciaId = editingRecurrenteId;
     let error;
     if (editingRecurrenteId) {
         const { error: err } = await supabaseClient.from('reservas_recurrentes').update(data).eq('id', editingRecurrenteId);
         error = err;
     } else {
-        const { error: err } = await supabaseClient.from('reservas_recurrentes').insert(data);
+        const { data: inserted, error: err } = await supabaseClient.from('reservas_recurrentes').insert(data).select('id');
         error = err;
+        if (!error && inserted && inserted.length > 0) {
+            recurrenciaId = inserted[0].id;
+        }
     }
-    if (error) alert('Error: ' + error.message);
-    else {
+    if (error) {
+        alert('Error: ' + error.message);
+    } else {
         cerrarModalRecurrencia();
         await cargarRecurrentes();
-        alert('Recurrencia guardada');
+        if (recurrenciaId) {
+            await regenerarReservasRecurrente(recurrenciaId);
+        }
+        alert('Recurrencia guardada. Las reservas futuras se han regenerado.');
     }
 }
 
@@ -558,26 +603,44 @@ function editarRecurrencia(recur) {
 async function eliminarRecurrencia(id) {
     if (!confirm('¿Eliminar esta recurrencia? También se eliminarán las reservas futuras generadas.')) return;
     const { error } = await supabaseClient.from('reservas_recurrentes').delete().eq('id', id);
-    if (error) alert('Error: ' + error.message);
-    else {
-        await supabaseClient.from('reservas').delete().eq('recurrente_id', id).gte('fecha', new Date().toISOString().slice(0,10));
+    if (error) {
+        alert('Error: ' + error.message);
+    } else {
+        await supabaseClient.from('reservas').delete().eq('recurrente_id', id).gte('fecha', formatDateToISO(getTodayUTC()));
         await cargarRecurrentes();
         alert('Recurrencia eliminada');
     }
 }
 
+// Funciones RPC adicionales (opcionales, si las creas en Supabase)
 async function generarReservasAhora() {
-    alert('Esta función requiere una Edge Function en Supabase. Por ahora, usa el botón en la app de escritorio.');
+    try {
+        // Si tienes una función RPC llamada 'generar_todas_reservas_recurrentes'
+        const { data, error } = await supabaseClient.rpc('generar_todas_reservas_recurrentes');
+        if (error) throw error;
+        alert(`Se generaron ${data} nuevas reservas recurrentes.`);
+        await cargarRecurrentes();
+    } catch (err) {
+        console.error(err);
+        alert('Esta función requiere una función RPC en Supabase (generar_todas_reservas_recurrentes). Por ahora, usa el botón en la app de escritorio.');
+    }
 }
 
 async function marcarAusenciasAutomaticas() {
-    alert('Esta función requiere una Edge Function en Supabase. Por ahora, usa el botón en la app de escritorio.');
+    try {
+        const { data, error } = await supabaseClient.rpc('marcar_ausencias_automaticas');
+        if (error) throw error;
+        alert(`Se marcaron ${data} ausencias automáticas.`);
+        await cargarRecurrentes();
+    } catch (err) {
+        console.error(err);
+        alert('Esta función requiere una función RPC en Supabase (marcar_ausencias_automaticas). Por ahora, usa el botón en la app de escritorio.');
+    }
 }
 
-// ==================== Fin de funciones de recurrentes ====================
-
+// ==================== Tabla de horarios ====================
 function generarSlots() {
-    const minutosSlot = parseInt(document.getElementById('granularidad').value);
+    const minutosSlot = parseInt(document.getElementById('granularidad')?.value || 30);
     slots = [];
     let hora = 6, min = 0;
     while (hora < 23 || (hora === 23 && min === 0)) {
@@ -598,6 +661,7 @@ function formatearHoraAMPM(hora, minuto) {
 async function renderizarTabla(vista) {
     generarSlots();
     const container = document.getElementById('horario-container');
+    if (!container) return;
     if (!canchas.length || !slots.length) { container.innerHTML = '<p>Cargando...</p>'; return; }
     const table = document.createElement('table');
     const thead = document.createElement('thead');
@@ -616,7 +680,7 @@ async function renderizarTabla(vista) {
     for (let slot of slots) {
         const row = document.createElement('tr');
         const startTime = new Date(`${fechaActual}T${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}:00`);
-        const minutosSlot = parseInt(document.getElementById('granularidad').value);
+        const minutosSlot = parseInt(document.getElementById('granularidad')?.value || 30);
         const endTime = new Date(startTime.getTime() + minutosSlot * 60000);
         const endH = endTime.getHours();
         const endM = endTime.getMinutes();
@@ -668,6 +732,7 @@ async function renderizarTabla(vista) {
 
 function attachDoubleClick(vista) {
     const container = document.getElementById('horario-container');
+    if (!container) return;
     container.addEventListener('dblclick', async (e) => {
         let celda = e.target.closest('td');
         if (!celda || celda.cellIndex === 0) return;
@@ -677,29 +742,29 @@ function attachDoubleClick(vista) {
                 const startISO = celda.dataset.slotStart;
                 const startDate = new Date(startISO);
                 currentFecha = startDate.toISOString().slice(0,10);
-                document.getElementById('fecha-reserva').value = currentFecha;
-
-                const minutosSlot = parseInt(document.getElementById('granularidad').value);
+                const fechaReservaInput = document.getElementById('fecha-reserva');
+                if (fechaReservaInput) fechaReservaInput.value = currentFecha;
+                const minutosSlot = parseInt(document.getElementById('granularidad')?.value || 30);
                 const endDateDefault = new Date(startDate.getTime() + minutosSlot * 60000);
                 horaInicioActual = new Date(startDate);
                 horaFinActual = new Date(endDateDefault);
                 updateHoraInicioDisplay();
                 updateHoraFinDisplay();
-
                 const cancha = canchas.find(c => c.id === currentCanchaId);
                 const tipoSelect = document.getElementById('tipo-reserva');
-                tipoSelect.innerHTML = '';
-                if (cancha.tipo === 'futbol') {
-                    tipoSelect.innerHTML = `
-                        <option value="individual">Individual (solo esta cancha)</option>
-                        <option value="media12">Media cancha (Fútbol 1+2)</option>
-                        <option value="media34">Media cancha (Fútbol 3+4)</option>
-                        <option value="completa">Cancha completa (Fútbol 1+2+3+4)</option>
-                    `;
-                } else {
-                    tipoSelect.innerHTML = `<option value="individual">Individual (solo esta cancha)</option>`;
+                if (tipoSelect) {
+                    tipoSelect.innerHTML = '';
+                    if (cancha && cancha.tipo === 'futbol') {
+                        tipoSelect.innerHTML = `
+                            <option value="individual">Individual (solo esta cancha)</option>
+                            <option value="media12">Media cancha (Fútbol 1+2)</option>
+                            <option value="media34">Media cancha (Fútbol 3+4)</option>
+                            <option value="completa">Cancha completa (Fútbol 1+2+3+4)</option>
+                        `;
+                    } else {
+                        tipoSelect.innerHTML = `<option value="individual">Individual (solo esta cancha)</option>`;
+                    }
                 }
-
                 const clienteSelect = document.getElementById('cliente-id');
                 if (clienteSelect) {
                     clienteSelect.innerHTML = '<option value="">Sin cliente</option>';
@@ -707,43 +772,53 @@ function attachDoubleClick(vista) {
                         clienteSelect.innerHTML += `<option value="${c.id}">${c.nombre}${c.precio_especial_hora > 0 ? ` (Precio esp. S/${c.precio_especial_hora}/h)` : ''}</option>`;
                     });
                 }
-
                 // Configurar botones de hora
-                document.getElementById('inicio-mas30').onclick = () => setHoraInicio(ajustarHora(horaInicioActual, 30));
-                document.getElementById('inicio-menos30').onclick = () => setHoraInicio(ajustarHora(horaInicioActual, -30));
-                document.getElementById('inicio-am').onclick = () => {
+                const btnInicioMas30 = document.getElementById('inicio-mas30');
+                if (btnInicioMas30) btnInicioMas30.onclick = () => setHoraInicio(ajustarHora(horaInicioActual, 30));
+                const btnInicioMenos30 = document.getElementById('inicio-menos30');
+                if (btnInicioMenos30) btnInicioMenos30.onclick = () => setHoraInicio(ajustarHora(horaInicioActual, -30));
+                const btnInicioAm = document.getElementById('inicio-am');
+                if (btnInicioAm) btnInicioAm.onclick = () => {
                     let newH = horaInicioActual.getHours() % 12;
                     if (newH === 0) newH = 0;
                     let newDate = new Date(horaInicioActual);
                     newDate.setHours(newH, horaInicioActual.getMinutes());
                     setHoraInicio(newDate);
                 };
-                document.getElementById('inicio-pm').onclick = () => {
+                const btnInicioPm = document.getElementById('inicio-pm');
+                if (btnInicioPm) btnInicioPm.onclick = () => {
                     let newH = (horaInicioActual.getHours() % 12) + 12;
                     let newDate = new Date(horaInicioActual);
                     newDate.setHours(newH, horaInicioActual.getMinutes());
                     setHoraInicio(newDate);
                 };
-                document.getElementById('fin-mas30').onclick = () => setHoraFin(ajustarHora(horaFinActual, 30));
-                document.getElementById('fin-menos30').onclick = () => setHoraFin(ajustarHora(horaFinActual, -30));
-                document.getElementById('fin-am').onclick = () => {
+                const btnFinMas30 = document.getElementById('fin-mas30');
+                if (btnFinMas30) btnFinMas30.onclick = () => setHoraFin(ajustarHora(horaFinActual, 30));
+                const btnFinMenos30 = document.getElementById('fin-menos30');
+                if (btnFinMenos30) btnFinMenos30.onclick = () => setHoraFin(ajustarHora(horaFinActual, -30));
+                const btnFinAm = document.getElementById('fin-am');
+                if (btnFinAm) btnFinAm.onclick = () => {
                     let newH = horaFinActual.getHours() % 12;
                     if (newH === 0) newH = 0;
                     let newDate = new Date(horaFinActual);
                     newDate.setHours(newH, horaFinActual.getMinutes());
                     setHoraFin(newDate);
                 };
-                document.getElementById('fin-pm').onclick = () => {
+                const btnFinPm = document.getElementById('fin-pm');
+                if (btnFinPm) btnFinPm.onclick = () => {
                     let newH = (horaFinActual.getHours() % 12) + 12;
                     let newDate = new Date(horaFinActual);
                     newDate.setHours(newH, horaFinActual.getMinutes());
                     setHoraFin(newDate);
                 };
-
-                document.getElementById('adelanto').value = '0';
-                document.getElementById('responsable').value = '';
-                document.getElementById('telefono').value = '';
-                document.getElementById('observaciones').value = '';
+                const adelantoInput = document.getElementById('adelanto');
+                if (adelantoInput) adelantoInput.value = '0';
+                const responsableInput = document.getElementById('responsable');
+                if (responsableInput) responsableInput.value = '';
+                const telefonoInput = document.getElementById('telefono');
+                if (telefonoInput) telefonoInput.value = '';
+                const observacionesInput = document.getElementById('observaciones');
+                if (observacionesInput) observacionesInput.value = '';
                 await actualizarCostoEstimadoModal();
                 mostrarModalReserva();
             } else {
@@ -766,12 +841,13 @@ function attachDoubleClick(vista) {
 }
 
 async function actualizarCostoEstimadoModal() {
-    const tipo = document.getElementById('tipo-reserva').value;
+    const tipo = document.getElementById('tipo-reserva')?.value;
     const clienteId = document.getElementById('cliente-id')?.value || null;
-    const fecha = document.getElementById('fecha-reserva').value;
+    const fecha = document.getElementById('fecha-reserva')?.value;
     if (!horaInicioActual || !horaFinActual) return;
     if (horaFinActual <= horaInicioActual) {
-        document.getElementById('costo-estimado').innerText = 'S/ 0.00 (hora fin inválida)';
+        const costoLabel = document.getElementById('costo-estimado');
+        if (costoLabel) costoLabel.innerText = 'S/ 0.00 (hora fin inválida)';
         return;
     }
     let costo = 0;
@@ -796,36 +872,37 @@ async function actualizarCostoEstimadoModal() {
             }
         }
     }
-    document.getElementById('costo-estimado').innerText = `S/ ${costo.toFixed(2)}`;
+    const costoLabel = document.getElementById('costo-estimado');
+    if (costoLabel) costoLabel.innerText = `S/ ${costo.toFixed(2)}`;
 }
 
 function mostrarModalReserva() {
-    document.getElementById('modal-reserva').style.display = 'flex';
+    const modal = document.getElementById('modal-reserva');
+    if (modal) modal.style.display = 'flex';
 }
 
 function configurarModalDinamico() {
     const guardarBtn = document.getElementById('guardar-reserva');
+    if (guardarBtn) guardarBtn.onclick = guardarReservaGrupo;
     const cancelarBtn = document.getElementById('cancelar-reserva');
-    guardarBtn.onclick = guardarReservaGrupo;
-    cancelarBtn.onclick = () => { document.getElementById('modal-reserva').style.display = 'none'; };
+    if (cancelarBtn) cancelarBtn.onclick = () => { document.getElementById('modal-reserva').style.display = 'none'; };
     const tipoSelect = document.getElementById('tipo-reserva');
-    const clienteSelect = document.getElementById('cliente-id');
     if (tipoSelect) tipoSelect.addEventListener('change', () => actualizarCostoEstimadoModal());
+    const clienteSelect = document.getElementById('cliente-id');
     if (clienteSelect) clienteSelect.addEventListener('change', () => actualizarCostoEstimadoModal());
 }
 
 async function guardarReservaGrupo() {
-    const responsable = document.getElementById('responsable').value.trim();
+    const responsable = document.getElementById('responsable')?.value.trim();
     if (!responsable) { alert('Ingrese el nombre del responsable'); return; }
-    const tipo = document.getElementById('tipo-reserva').value;
-    const adelantoTotal = parseFloat(document.getElementById('adelanto').value) || 0;
-    const metodo = document.getElementById('metodo_pago').value;
-    const observaciones = document.getElementById('observaciones').value;
+    const tipo = document.getElementById('tipo-reserva')?.value;
+    const adelantoTotal = parseFloat(document.getElementById('adelanto')?.value || 0);
+    const metodo = document.getElementById('metodo_pago')?.value;
+    const observaciones = document.getElementById('observaciones')?.value || '';
     const clienteId = document.getElementById('cliente-id')?.value || null;
-    const fechaStr = document.getElementById('fecha-reserva').value;
+    const fechaStr = document.getElementById('fecha-reserva')?.value;
     const horaInicioStr = dateToTimeString(horaInicioActual);
     const horaFinStr = dateToTimeString(horaFinActual);
-
     if (!fechaStr) { alert('Complete fecha'); return; }
     if (horaFinActual <= horaInicioActual) { alert('La hora de fin debe ser mayor a la de inicio'); return; }
 
@@ -834,7 +911,6 @@ async function guardarReservaGrupo() {
     else if (tipo === 'media12') canchaIds = obtenerCanchasPorNombres(['Fútbol 1', 'Fútbol 2']);
     else if (tipo === 'media34') canchaIds = obtenerCanchasPorNombres(['Fútbol 3', 'Fútbol 4']);
     else if (tipo === 'completa') canchaIds = obtenerCanchasPorNombres(['Fútbol 1', 'Fútbol 2', 'Fútbol 3', 'Fútbol 4']);
-
     if (canchaIds.length === 0) { alert('No se encontraron las canchas necesarias. Verifica los nombres en Supabase.'); return; }
 
     try {
@@ -863,10 +939,8 @@ async function guardarReservaGrupo() {
             }
         }
     }
-
     if (adelantoTotal > costoTotal) { alert(`El adelanto (S/${adelantoTotal}) no puede superar el costo total (S/${costoTotal})`); return; }
 
-    // Distribuir adelanto
     const costosIndividuales = [];
     for (let cid of canchaIds) {
         let costoInd = 0;
@@ -892,7 +966,6 @@ async function guardarReservaGrupo() {
         const igual = adelantoTotal / canchaIds.length;
         for (let i = 0; i < canchaIds.length; i++) montosAdelanto.push(igual);
     }
-
     const grupo_id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36);
     const reservasInsert = [];
     for (let i = 0; i < canchaIds.length; i++) {
@@ -907,12 +980,12 @@ async function guardarReservaGrupo() {
             grupo_id: grupo_id, cliente_id: clienteId ? parseInt(clienteId) : null
         });
     }
-
     const { error } = await supabaseClient.from('reservas').insert(reservasInsert);
     if (error) alert('Error al guardar: ' + error.message);
     else {
         alert(`Reserva ${tipo === 'individual' ? 'individual' : 'grupal'} registrada correctamente.`);
-        document.getElementById('modal-reserva').style.display = 'none';
+        const modal = document.getElementById('modal-reserva');
+        if (modal) modal.style.display = 'none';
         await cargarReservas();
         renderizarTabla('admin');
     }
