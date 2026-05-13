@@ -45,9 +45,10 @@
         return canchasCache;
     }
 
+    // ✅ CORRECCIÓN: La tabla correcta es 'configuracion_precios' (no 'precios')
     async function cargarPrecios() {
         const { data, error } = await supabase
-            .from('precios')
+            .from('configuracion_precios')
             .select('*');
         if (error) {
             console.error('Error cargando precios:', error);
@@ -58,6 +59,7 @@
     }
 
     // Obtiene la tarifa por hora según el tipo de cancha y la hora del día (Date object)
+    // Nota: Las columnas en 'configuracion_precios' son: hora_inicio (TIME), hora_fin (TIME), tipo_cancha, precio
     function obtenerTarifaPorHora(tipoCancha, hora) {
         // hora es un objeto Date válido (por ejemplo, la hora de inicio de un segmento)
         const horaStr = hora.toTimeString().slice(0, 8); // "HH:MM:SS"
@@ -65,7 +67,7 @@
         // Buscar en la tabla de precios la tarifa que aplique para este tipo de cancha y horario
         const precioEncontrado = preciosCache.find(precio => {
             if (precio.tipo_cancha !== tipoCancha) return false;
-            // Comparar rangos horarios (asumiendo hora_inicio y hora_fin en formato "HH:MM:SS")
+            // Comparar rangos horarios (hora_inicio y hora_fin en formato "HH:MM:SS")
             return horaStr >= precio.hora_inicio && horaStr < precio.hora_fin;
         });
         
