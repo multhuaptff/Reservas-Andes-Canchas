@@ -261,11 +261,17 @@ async function cargarClientes() {
     else clientes = data;
 }
 
+// ==================== FUNCIÓN MODIFICADA ====================
 async function cargarReservas() {
-    const { data, error } = await supabaseClient.from('reservas').select('*').eq('fecha', fechaActual);
+    const { data, error } = await supabaseClient
+        .from('reservas')
+        .select('*')
+        .eq('fecha', fechaActual)
+        .neq('estado_asistencia', 'cancelado_con_aviso');   // ← NUEVO FILTRO
     if (error) console.error(error);
     else reservas = data;
 }
+// ===========================================================
 
 // ==================== RESERVAS RECURRENTES ====================
 async function cargarClientesParaRecurrentes() {
@@ -319,7 +325,7 @@ async function cargarRecurrentes() {
     const tbody = document.querySelector('#tabla-recurrentes tbody');
     if (error) {
         console.error('Error cargando recurrentes:', error);
-        if (tbody) tbody.innerHTML = '<tr><td colspan="11">Error al cargar las recurrencias.</td></tr>';
+        if (tbody) tbody.innerHTML = '<table><td colspan="11">Error al cargar las recurrencias.</td></tr>';
         if (window.updateRecurrentesBadge) window.updateRecurrentesBadge(false);
         return;
     }
