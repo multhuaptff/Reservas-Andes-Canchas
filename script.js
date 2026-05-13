@@ -413,6 +413,7 @@ function cerrarModalCancelacion() {
     currentCancelRecur = null;
 }
 
+// ========== FUNCIÓN MODIFICADA: Validación de fecha futura + cancelación con aviso actualiza estado ==========
 async function confirmarCancelacionSemana() {
     if (!currentCancelRecur) return;
     const recur = currentCancelRecur;
@@ -428,6 +429,14 @@ async function confirmarCancelacionSemana() {
         alert('Fecha inválida');
         return;
     }
+
+    // === VALIDACIÓN DE FECHA FUTURA ===
+    const hoyUTC = getTodayUTC();
+    if (fecha < hoyUTC) {
+        alert("No se puede cancelar una fecha pasada.");
+        return;
+    }
+
     let diaSemanaJS = fecha.getUTCDay();
     let mapping = {0:6,1:0,2:1,3:2,4:3,5:4,6:5};
     if (mapping[diaSemanaJS] !== recur.dia_semana) {
@@ -444,6 +453,7 @@ async function confirmarCancelacionSemana() {
     let lostDates = recur.lost_advance_dates ? JSON.parse(recur.lost_advance_dates) : [];
     
     if (avisoConTiempo && horasRestantes < noticeHours) {
+        // Aviso pero con menos horas de las requeridas → se pierde adelanto (comportamiento anterior)
         if (!confirm(`Faltan menos de ${noticeHours} horas para la reserva. Si continúa, el adelanto se perderá. ¿Desea cancelar igualmente?`)) {
             return;
         }
@@ -453,25 +463,43 @@ async function confirmarCancelacionSemana() {
             skip_dates: JSON.stringify(skipDates),
             lost_advance_dates: JSON.stringify(lostDates)
         }).eq('id', recur.id);
-        alert('Semana cancelada SIN aviso. Adelanto perdido.');
-    } else if (avisoConTiempo) {
+        // Eliminar reserva existente (pérdida de adelanto)
+        await supabaseClient.from('reservas').delete().eq('recurrente_id', recur.id).eq('fecha', fechaStr);
+        alert('Semana cancelada SIN aviso suficiente. Adelanto perdido.');
+    } 
+    else if (avisoConTiempo) {
+        // === NUEVO: Cancelación CON aviso válido → NO eliminar, solo actualizar estado ===
         if (!skipDates.includes(fechaStr)) skipDates.push(fechaStr);
         lostDates = lostDates.filter(d => d !== fechaStr);
         await supabaseClient.from('reservas_recurrentes').update({
             skip_dates: JSON.stringify(skipDates),
             lost_advance_dates: JSON.stringify(lostDates)
         }).eq('id', recur.id);
-        alert('Semana cancelada con aviso. Adelanto conservado.');
-    } else {
+        
+        // Actualizar la reserva existente (si existe) a 'cancelado_con_aviso'
+        const { error: updateError } = await supabaseClient
+            .from('reservas')
+            .update({ estado_asistencia: 'cancelado_con_aviso' })
+            .eq('recurrente_id', recur.id)
+            .eq('fecha', fechaStr);
+        
+        if (updateError) {
+            console.warn('No se pudo actualizar estado de la reserva (quizás aún no fue generada):', updateError);
+        }
+        alert('Semana cancelada con aviso. Adelanto conservado y reserva marcada como cancelada con aviso.');
+    } 
+    else {
+        // Sin aviso → pérdida de adelanto (comportamiento anterior)
         if (!lostDates.includes(fechaStr)) lostDates.push(fechaStr);
         skipDates = skipDates.filter(d => d !== fechaStr);
         await supabaseClient.from('reservas_recurrentes').update({
             skip_dates: JSON.stringify(skipDates),
             lost_advance_dates: JSON.stringify(lostDates)
         }).eq('id', recur.id);
+        await supabaseClient.from('reservas').delete().eq('recurrente_id', recur.id).eq('fecha', fechaStr);
         alert('Semana cancelada SIN aviso. Adelanto perdido.');
     }
-    await supabaseClient.from('reservas').delete().eq('recurrente_id', recur.id).eq('fecha', fechaStr);
+    
     await cargarRecurrentes();
     cerrarModalCancelacion();
 }
