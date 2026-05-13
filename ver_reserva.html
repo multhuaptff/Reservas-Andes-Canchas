@@ -9,6 +9,9 @@
         .estado-pagado { color: #2E7D32; font-weight: bold; }
         .estado-deuda { color: #D32F2F; font-weight: bold; }
         .qr { text-align: center; margin-top: 20px; }
+        button { background: #1e3c72; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; margin-top: 20px; width: 100%; }
+        button:hover { background: #0f2b4f; }
+        .loading { text-align: center; padding: 20px; }
     </style>
 </head>
 <body>
@@ -21,53 +24,168 @@
         <p><small>Este enlace es personal e intransferible. Ante cualquier duda, contacta con la administración.</small></p>
     </div>
 </div>
+
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script type="module">
     import { supabase } from './supabase-client.js';
     
+    // ==================== FUNCIONES DE CÁLCULO DE COSTOS (copiadas y adaptadas de script.js) ====================
+    let canchasCache = [];
+    let preciosCache = [];
+
+    async function cargarCanchas() {
+        const { data, error } = await supabase
+            .from('canchas')
+            .select('*');
+        if (error) {
+            console.error('Error cargando canchas:', error);
+            return [];
+        }
+        canchasCache = data || [];
+        return canchasCache;
+    }
+
+    async function cargarPrecios() {
+        const { data, error } = await supabase
+            .from('precios')
+            .select('*');
+        if (error) {
+            console.error('Error cargando precios:', error);
+            return [];
+        }
+        preciosCache = data || [];
+        return preciosCache;
+    }
+
+    // Obtiene la tarifa por hora según el tipo de cancha y la hora del día (Date object)
+    function obtenerTarifaPorHora(tipoCancha, hora) {
+        // hora es un objeto Date válido (por ejemplo, la hora de inicio de un segmento)
+        const horaStr = hora.toTimeString().slice(0, 8); // "HH:MM:SS"
+        
+        // Buscar en la tabla de precios la tarifa que aplique para este tipo de cancha y horario
+        const precioEncontrado = preciosCache.find(precio => {
+            if (precio.tipo_cancha !== tipoCancha) return false;
+            // Comparar rangos horarios (asumiendo hora_inicio y hora_fin en formato "HH:MM:SS")
+            return horaStr >= precio.hora_inicio && horaStr < precio.hora_fin;
+        });
+        
+        if (precioEncontrado) {
+            return precioEncontrado.precio;
+        }
+        
+        // Tarifa por defecto si no hay configuración (fútbol: 80, vóley: 50, otros: 60)
+        const tarifasDefault = {
+            'Fútbol': 80,
+            'Vóley': 50,
+            'Básquet': 70,
+            'Tenis': 60
+        };
+        return tarifasDefault[tipoCancha] || 60;
+    }
+
+    // Calcula el costo total recorriendo cada minuto entre horaIniDate y horaFinDate
+    async function calcularCostoPorTramos(tipoCancha, fecha, horaIniDate, horaFinDate) {
+        let costoTotal = 0;
+        let current = new Date(horaIniDate);
+        const fin = new Date(horaFinDate);
+        
+        // Iterar minuto a minuto para mayor precisión
+        while (current < fin) {
+            const siguienteMinuto = new Date(current.getTime() + 60000);
+            if (siguienteMinuto > fin) break;
+            
+            // Obtener tarifa por hora para este minuto
+            const tarifaHora = obtenerTarifaPorHora(tipoCancha, current);
+            // Sumar proporción de un minuto (tarifa por hora / 60)
+            costoTotal += tarifaHora / 60;
+            
+            current = siguienteMinuto;
+        }
+        
+        return Math.round(costoTotal * 100) / 100; // Redondear a 2 decimales
+    }
+
+    // Calcula el costo esperado de una reserva (similar a la función original)
+    async function calcularCostoEsperado(canchaId, clienteId, fecha, horaIniDate, horaFinDate) {
+        // Obtener el tipo de cancha desde el caché
+        const cancha = canchasCache.find(c => c.id === canchaId);
+        if (!cancha) {
+            console.warn('Cancha no encontrada:', canchaId);
+            return 0;
+        }
+        
+        const tipoCancha = cancha.tipo;
+        // El clienteId podría usarse para descuentos especiales, pero aquí no aplica
+        return await calcularCostoPorTramos(tipoCancha, fecha, horaIniDate, horaFinDate);
+    }
+
+    // Función principal para calcular el costo de la reserva (la que se llama desde el flujo)
+    async function calcularCosto(reserva) {
+        const horaIni = new Date(`${reserva.fecha}T${reserva.hora_inicio}`);
+        const horaFin = new Date(`${reserva.fecha}T${reserva.hora_fin}`);
+        const costo = await calcularCostoEsperado(
+            reserva.cancha_id,
+            reserva.cliente_id,
+            reserva.fecha,
+            horaIni,
+            horaFin
+        );
+        return costo;
+    }
+    // ==================== FIN FUNCIONES DE CÁLCULO ====================
+
+    // ==================== CARGA Y RENDERIZADO DE LA RESERVA ====================
     const params = new URLSearchParams(window.location.search);
     const reservaId = params.get('id');
+    
     if (!reservaId) {
         document.getElementById('info').innerHTML = '<p>❌ Enlace inválido.</p>';
     } else {
-        const { data, error } = await supabase
-            .from('reservas')
-            .select('*, canchas(nombre), clientes(nombre)')
-            .eq('id', reservaId)
-            .single();
-        if (error || !data) {
-            document.getElementById('info').innerHTML = '<p>❌ Reserva no encontrada.</p>';
-        } else {
-            const costoTotal = await calcularCosto(data);
-            const pagado = data.adelanto + data.monto_efectivo + data.monto_yape;
-            const deuda = Math.max(0, costoTotal - pagado);
-            const estado = deuda <= 0.01 ? 'Pagado' : `Deuda: S/ ${deuda.toFixed(2)}`;
-            const html = `
-                <p><strong>Responsable:</strong> ${data.responsable}</p>
-                <p><strong>Fecha:</strong> ${data.fecha}</p>
-                <p><strong>Horario:</strong> ${data.hora_inicio.slice(0,5)} - ${data.hora_fin.slice(0,5)}</p>
-                <p><strong>Cancha:</strong> ${data.canchas?.nombre || 'N/A'}</p>
-                <p><strong>Cliente:</strong> ${data.clientes?.nombre || 'Particular'}</p>
-                <p><strong>Costo total:</strong> S/ ${costoTotal.toFixed(2)}</p>
-                <p><strong>Pagado:</strong> S/ ${pagado.toFixed(2)}</p>
-                <p><strong>Estado:</strong> <span class="${deuda<=0.01?'estado-pagado':'estado-deuda'}">${estado}</span></p>
-                <p><strong>Observaciones:</strong> ${data.observaciones || 'Ninguna'}</p>
-            `;
-            document.getElementById('info').innerHTML = html;
-            // Generar QR con el enlace actual
-            new QRCode(document.getElementById("qr"), {
-                text: window.location.href,
-                width: 200,
-                height: 200
-            });
+        try {
+            // 1. Cargar tablas auxiliares (canchas y precios) antes de calcular
+            await Promise.all([cargarCanchas(), cargarPrecios()]);
+            
+            // 2. Obtener datos de la reserva con relaciones
+            const { data: reserva, error } = await supabase
+                .from('reservas')
+                .select('*, canchas(nombre, tipo), clientes(nombre)')
+                .eq('id', reservaId)
+                .single();
+                
+            if (error || !reserva) {
+                document.getElementById('info').innerHTML = '<p>❌ Reserva no encontrada.</p>';
+            } else {
+                // 3. Calcular costo total dinámico
+                const costoTotal = await calcularCosto(reserva);
+                const pagado = (reserva.adelanto || 0) + (reserva.monto_efectivo || 0) + (reserva.monto_yape || 0);
+                const deuda = Math.max(0, costoTotal - pagado);
+                const estado = deuda <= 0.01 ? 'Pagado' : `Deuda: S/ ${deuda.toFixed(2)}`;
+                
+                // 4. Mostrar información
+                const html = `
+                    <p><strong>Responsable:</strong> ${reserva.responsable || 'No especificado'}</p>
+                    <p><strong>Fecha:</strong> ${reserva.fecha}</p>
+                    <p><strong>Horario:</strong> ${reserva.hora_inicio.slice(0,5)} - ${reserva.hora_fin.slice(0,5)}</p>
+                    <p><strong>Cancha:</strong> ${reserva.canchas?.nombre || 'N/A'} (${reserva.canchas?.tipo || 'Sin tipo'})</p>
+                    <p><strong>Cliente:</strong> ${reserva.clientes?.nombre || 'Particular'}</p>
+                    <p><strong>Costo total:</strong> S/ ${costoTotal.toFixed(2)}</p>
+                    <p><strong>Pagado:</strong> S/ ${pagado.toFixed(2)}</p>
+                    <p><strong>Estado:</strong> <span class="${deuda <= 0.01 ? 'estado-pagado' : 'estado-deuda'}">${estado}</span></p>
+                    <p><strong>Observaciones:</strong> ${reserva.observaciones || 'Ninguna'}</p>
+                `;
+                document.getElementById('info').innerHTML = html;
+                
+                // 5. Generar código QR con el enlace actual
+                new QRCode(document.getElementById("qr"), {
+                    text: window.location.href,
+                    width: 200,
+                    height: 200
+                });
+            }
+        } catch (err) {
+            console.error('Error al cargar la reserva:', err);
+            document.getElementById('info').innerHTML = '<p>❌ Error al cargar los datos. Intente nuevamente.</p>';
         }
-    }
-    
-    async function calcularCosto(reserva) {
-        // Llamar a la misma función que en script.js (copiar lógica)
-        // Por brevedad, se puede importar o reimplementar
-        // Se omite aquí para no alargar, pero usar la misma lógica de script.js
-        return 0; // placeholder
     }
 </script>
 </body>
