@@ -1,4 +1,5 @@
-/* style.css */
+/* style.css - Versión completa y actualizada */
+
 body {
     font-family: 'Segoe UI', system-ui, sans-serif;
     background-color: #F5F7F5;
@@ -16,13 +17,14 @@ body {
     flex-wrap: wrap;
     align-items: center;
 }
-/* Contenedor con scroll horizontal para la tabla */
+/* Contenedor con scroll horizontal para la tabla de horarios */
 #horario-container {
     overflow-x: auto;
 }
+/* Tabla de horarios */
 table {
     width: 100%;
-    min-width: 800px;  /* Asegura que se pueda hacer scroll si hay muchas columnas */
+    min-width: 800px;
     border-collapse: collapse;
     background: white;
     border-radius: 16px;
@@ -44,6 +46,7 @@ td small {
     font-size: 0.8em;
     color: gray;
 }
+/* Estilos para los estados de las celdas */
 .celda-libre {
     background-color: #E8F5E9;
     cursor: pointer;
@@ -60,6 +63,7 @@ td small {
 .celda-deuda-sin-adelanto {
     background-color: #FFCDD2;
 }
+/* Botones generales */
 button, .btn {
     background-color: #2E7D32;
     color: white;
@@ -68,15 +72,30 @@ button, .btn {
     padding: 8px 16px;
     cursor: pointer;
     font-weight: bold;
+    transition: background-color 0.2s;
 }
-button:hover {
+button:hover, .btn:hover {
     background-color: #1B5E20;
 }
+/* Botones pequeños para acciones en tabla */
+.btn-accion {
+    background-color: #1565C0;
+    border-radius: 20px;
+    padding: 4px 12px;
+    margin: 2px;
+    font-size: 0.85em;
+}
+.btn-accion:hover {
+    background-color: #0D47A1;
+}
+/* Campos de formulario */
 input, select {
     border: 1px solid #CFD8DC;
     border-radius: 16px;
     padding: 8px 12px;
+    font-family: inherit;
 }
+/* Modales generales */
 .modal {
     display: none;
     position: fixed;
@@ -91,5 +110,116 @@ input, select {
     background: white;
     border-radius: 20px;
     padding: 20px;
-    min-width: 350px;   /* Aumentado para mejor visibilidad */
+    min-width: 350px;
+    max-width: 90%;
+    max-height: 90%;
+    overflow-y: auto;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+/* Modal específico para cancelación de semana (usado en script.js) */
+.modal-cancelar {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5);
+    justify-content: center;
+    align-items: center;
+    z-index: 1001;
+}
+.modal-cancelar .modal-content {
+    background: white;
+    border-radius: 20px;
+    padding: 20px;
+    min-width: 350px;
+}
+/* Estilos para las pestañas (usadas en admin.html) */
+.tab {
+    overflow: hidden;
+    border-bottom: 1px solid #ccc;
+    margin-bottom: 20px;
+    position: relative;
+}
+.tab button {
+    background-color: inherit;
+    float: left;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    padding: 10px 20px;
+    transition: 0.3s;
+    font-weight: bold;
+    margin-right: 5px;
+    border-radius: 30px 30px 0 0;
+    position: relative;
+}
+.tab button:hover {
+    background-color: #ddd;
+}
+.tab button.active {
+    background-color: #1B5E20;
+    color: white;
+    border-bottom: 3px solid #FF8F00;
+}
+/* Badge para notificaciones en pestañas */
+.badge {
+    background-color: red;
+    color: white;
+    border-radius: 50%;
+    padding: 2px 6px;
+    font-size: 10px;
+    position: absolute;
+    top: -5px;
+    right: -10px;
+    display: none;
+}
+.tab button.active .badge {
+    background-color: #FF8F00;
+    color: #1B5E20;
+}
+/* Estilos para la tabla de reservas recurrentes */
+#tabla-recurrentes {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+#tabla-recurrentes th,
+#tabla-recurrentes td {
+    border: 1px solid #CFD8DC;
+    padding: 10px 8px;
+    text-align: left;
+    vertical-align: middle;
+}
+#tabla-recurrentes th {
+    background-color: #E8F5E9;
+    color: #1B5E20;
+    font-weight: bold;
+}
+#tabla-recurrentes tbody tr:nth-child(even) {
+    background-color: #F9FBE7;
+}
+/* Contenedor con scroll para la tabla de recurrentes en pantallas pequeñas */
+#recurrentes-container {
+    overflow-x: auto;
+}
+/* Ajustes responsivos */
+@media (max-width: 768px) {
+    body {
+        padding: 10px;
+    }
+    .toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .modal-content {
+        min-width: auto;
+        width: 95%;
+    }
+    .tab button {
+        padding: 8px 12px;
+        font-size: 0.9em;
+    }
 }
