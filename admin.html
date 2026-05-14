@@ -5,6 +5,7 @@
     <title>Andes Sport - Panel Administrativo</title>
     <link rel="stylesheet" href="style.css">
     <style>
+        /* ESTILOS CORREGIDOS PARA LAS PESTAÑAS (AHORA SÍ VISIBLES) */
         .tab {
             overflow: hidden;
             border-bottom: 1px solid #ccc;
@@ -12,7 +13,8 @@
             position: relative;
         }
         .tab button {
-            background-color: inherit;
+            background-color: #E0E0E0;   /* Fondo gris claro para inactivos */
+            color: #1B5E20;             /* Texto verde oscuro, LEGIBLE */
             float: left;
             border: none;
             outline: none;
@@ -25,11 +27,12 @@
             position: relative;
         }
         .tab button:hover {
-            background-color: #ddd;
+            background-color: #C8E6C9;   /* Verde muy claro al pasar el mouse */
+            color: #0D3B0F;
         }
         .tab button.active {
-            background-color: #1B5E20;
-            color: white;
+            background-color: #1B5E20;   /* Fondo verde oscuro para el activo */
+            color: white;                /* Texto blanco */
             border-bottom: 3px solid #FF8F00;
         }
         /* Badge para la pestaña de recurrentes */
