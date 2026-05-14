@@ -1,11 +1,11 @@
 // script.js - Versión definitiva con RPC para reservas recurrentes
-// Mejorado: sin emojis problemáticos y con colores de respaldo
+// Mejorado: sin emojis problemáticos, colores de respaldo y corrección de zona horaria en móviles
 
 let supabaseClient;
 let fechaActual = new Date().toISOString().slice(0,10);
 let canchas = [];
 let reservas = [];
-let slots = [];
+let slots = [];        // ahora cada slot: { inicioMin, finMinutos }
 let preciosConfig = [];
 let clientes = [];
 let currentCanchaId = null;
@@ -263,17 +263,15 @@ async function cargarClientes() {
     else clientes = data;
 }
 
-// ==================== FUNCIÓN MODIFICADA ====================
 async function cargarReservas() {
     const { data, error } = await supabaseClient
         .from('reservas')
         .select('*')
         .eq('fecha', fechaActual)
-        .neq('estado_asistencia', 'cancelado_con_aviso');   // ← NUEVO FILTRO
+        .neq('estado_asistencia', 'cancelado_con_aviso');
     if (error) console.error(error);
     else reservas = data;
 }
-// ===========================================================
 
 // ==================== RESERVAS RECURRENTES ====================
 async function cargarClientesParaRecurrentes() {
@@ -365,7 +363,6 @@ async function cargarRecurrentes() {
         row.insertCell(4).innerText = canchaNombres.join(', ');
         row.insertCell(5).innerText = `S/ ${r.adelanto_semanal}`;
         row.insertCell(6).innerText = `${r.fecha_inicio} - ${r.fecha_fin || 'indefinido'}`;
-        // Reemplazar emojis
         row.insertCell(7).innerText = r.activo ? 'Activo' : 'Inactivo';
         const proxFecha = calcularProximaFecha(r, hoyUTC);
         row.insertCell(8).innerText = proxFecha ? proxFecha.toLocaleDateString('es-CL') : 'No disponible';
@@ -375,7 +372,6 @@ async function cargarRecurrentes() {
         row.insertCell(9).innerText = `S/ ${perdidoTotal.toFixed(2)}`;
         
         const cellAcciones = row.insertCell(10);
-        // Botones con texto en lugar de emojis
         const btnEditar = document.createElement('button');
         btnEditar.innerText = 'Editar';
         btnEditar.className = 'btn-accion';
@@ -423,7 +419,6 @@ function cerrarModalCancelacion() {
     currentCancelRecur = null;
 }
 
-// ========== FUNCIÓN MODIFICADA: Validación de fecha futura + cancelación con aviso actualiza estado ==========
 async function confirmarCancelacionSemana() {
     if (!currentCancelRecur) return;
     const recur = currentCancelRecur;
@@ -556,7 +551,6 @@ function cerrarModalRecurrencia() {
     editingRecurrenteId = null;
 }
 
-// ========== REGENERAR RESERVAS MEDIANTE RPC ==========
 async function regenerarReservasRecurrente(recurrenciaId) {
     try {
         const { data, error } = await supabaseClient.rpc('regenerar_reservas_recurrentes', {
@@ -644,7 +638,6 @@ async function eliminarRecurrencia(id) {
     }
 }
 
-// Funciones RPC adicionales (opcionales, si las creas en Supabase)
 async function generarReservasAhora() {
     try {
         const { data, error } = await supabaseClient.rpc('generar_todas_reservas_recurrentes');
@@ -669,15 +662,31 @@ async function marcarAusenciasAutomaticas() {
     }
 }
 
-// ==================== Tabla de horarios ====================
+// ==================== Tabla de horarios (CORREGIDO para móviles) ====================
+function horaToMinutes(horaStr) {
+    const [h, m] = horaStr.split(':').map(Number);
+    return h * 60 + m;
+}
+
 function generarSlots() {
     const minutosSlot = parseInt(document.getElementById('granularidad')?.value || 30);
     slots = [];
     let hora = 6, min = 0;
     while (hora < 23 || (hora === 23 && min === 0)) {
-        slots.push({ hora, min });
+        const inicioMin = hora * 60 + min;
+        let finHora = hora;
+        let finMin = min + minutosSlot;
+        if (finMin >= 60) {
+            finHora += Math.floor(finMin / 60);
+            finMin = finMin % 60;
+        }
+        const finMinutos = finHora * 60 + finMin;
+        slots.push({ inicioMin, finMinutos });
         min += minutosSlot;
-        if (min >= 60) { hora += Math.floor(min / 60); min = min % 60; }
+        if (min >= 60) {
+            hora += Math.floor(min / 60);
+            min = min % 60;
+        }
         if (hora >= 24) break;
     }
 }
@@ -710,22 +719,20 @@ async function renderizarTabla(vista) {
     const tbody = document.createElement('tbody');
     for (let slot of slots) {
         const row = document.createElement('tr');
-        const startTime = new Date(`${fechaActual}T${slot.hora.toString().padStart(2,'0')}:${slot.min.toString().padStart(2,'0')}:00`);
-        const minutosSlot = parseInt(document.getElementById('granularidad')?.value || 30);
-        const endTime = new Date(startTime.getTime() + minutosSlot * 60000);
-        const endH = endTime.getHours();
-        const endM = endTime.getMinutes();
+        const inicioHora = Math.floor(slot.inicioMin / 60);
+        const inicioMin = slot.inicioMin % 60;
+        const finHora = Math.floor(slot.finMinutos / 60);
+        const finMin = slot.finMinutos % 60;
         const tdHora = document.createElement('td');
-        tdHora.textContent = `${formatearHoraAMPM(slot.hora, slot.min)} - ${formatearHoraAMPM(endH, endM)}`;
+        tdHora.textContent = `${formatearHoraAMPM(inicioHora, inicioMin)} - ${formatearHoraAMPM(finHora, finMin)}`;
         tdHora.style.fontWeight = 'bold';
         row.appendChild(tdHora);
         for (let cancha of canchas) {
-            const slotStart = startTime;
-            const slotEnd = endTime;
             const reservaEnSlot = reservas.find(r => {
-                const rStart = new Date(`${r.fecha}T${r.hora_inicio}`);
-                const rEnd = new Date(`${r.fecha}T${r.hora_fin}`);
-                return r.cancha_id === cancha.id && slotStart < rEnd && slotEnd > rStart;
+                if (r.cancha_id !== cancha.id) return false;
+                const rInicio = horaToMinutes(r.hora_inicio);
+                const rFin = horaToMinutes(r.hora_fin);
+                return (slot.inicioMin < rFin && slot.finMinutos > rInicio);
             });
             const celda = document.createElement('td');
             if (reservaEnSlot) {
@@ -739,7 +746,6 @@ async function renderizarTabla(vista) {
                     if (deuda <= 0.01) clase = 'celda-pagado';
                     else if (reservaEnSlot.adelanto > 0) clase = 'celda-deuda-adelanto';
                     else clase = 'celda-deuda-sin-adelanto';
-                    // Reemplazo de emojis por texto
                     contenido += `<br><small>Pagado: S/${pagado.toFixed(2)}</small>`;
                     if (deuda > 0) contenido += `<br><small>Deuda: S/${deuda.toFixed(2)}</small>`;
                 }
@@ -748,12 +754,12 @@ async function renderizarTabla(vista) {
                 celda.dataset.reservaId = reservaEnSlot.id;
             } else {
                 celda.className = 'celda-libre';
-                celda.innerHTML = 'Libre';   // Sin emoji
+                celda.innerHTML = 'Libre';
                 celda.dataset.canchaId = cancha.id;
-                celda.dataset.slotStart = slotStart.toISOString();
-                celda.dataset.slotEnd = slotEnd.toISOString();
+                celda.dataset.slotStartMin = slot.inicioMin;
+                celda.dataset.slotEndMin = slot.finMinutos;
             }
-            // Colores de respaldo en caso de que el CSS falle
+            // Colores de respaldo
             if (celda.classList.contains('celda-libre')) celda.style.backgroundColor = '#E8F5E9';
             else if (celda.classList.contains('celda-ocupada')) celda.style.backgroundColor = '#FFEBEE';
             else if (celda.classList.contains('celda-pagado')) celda.style.backgroundColor = '#C8E6C9';
@@ -777,15 +783,21 @@ function attachDoubleClick(vista) {
         if (celda.classList.contains('celda-libre')) {
             if (vista === 'admin') {
                 currentCanchaId = parseInt(celda.dataset.canchaId);
-                const startISO = celda.dataset.slotStart;
-                const startDate = new Date(startISO);
-                currentFecha = startDate.toISOString().slice(0,10);
+                // Construir fecha a partir de los minutos almacenados
+                const startMin = parseInt(celda.dataset.slotStartMin);
+                const endMin = parseInt(celda.dataset.slotEndMin);
+                const todayDate = new Date(fechaActual + 'T00:00:00');
+                const startDate = new Date(todayDate);
+                startDate.setHours(0, 0, 0, 0);
+                startDate.setMinutes(startMin);
+                const endDate = new Date(todayDate);
+                endDate.setHours(0, 0, 0, 0);
+                endDate.setMinutes(endMin);
+                currentFecha = fechaActual;
                 const fechaReservaInput = document.getElementById('fecha-reserva');
                 if (fechaReservaInput) fechaReservaInput.value = currentFecha;
-                const minutosSlot = parseInt(document.getElementById('granularidad')?.value || 30);
-                const endDateDefault = new Date(startDate.getTime() + minutosSlot * 60000);
                 horaInicioActual = new Date(startDate);
-                horaFinActual = new Date(endDateDefault);
+                horaFinActual = new Date(endDate);
                 updateHoraInicioDisplay();
                 updateHoraFinDisplay();
                 const cancha = canchas.find(c => c.id === currentCanchaId);
