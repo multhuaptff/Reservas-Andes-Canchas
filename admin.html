@@ -98,7 +98,12 @@
 
     <!-- Pestaña Reservas Recurrentes -->
     <div id="Recurrentes" class="tabcontent">
+        <!-- Mensaje informativo: los botones de creación/edición se han eliminado visualmente -->
         <div style="margin-bottom: 20px;">
+            <p style="color: #666;">Las reservas recurrentes solo pueden ser creadas/editadas desde la aplicación de escritorio. Aquí puedes cancelar semanas específicas.</p>
+        </div>
+        <!-- Botones originales ocultos para mantener compatibilidad con script.js (no visibles para el usuario) -->
+        <div style="display: none;">
             <button id="btn-nueva-recurrencia">➕ Nueva Recurrencia</button>
             <button id="btn-generar-ahora">🔄 Generar reservas pendientes ahora</button>
             <button id="btn-marcar-ausencias">⏰ Marcar ausencias automáticas</button>
