@@ -1,4 +1,4 @@
-/* style.css - Versión completa y actualizada */
+/* style.css - Versión definitiva con corrección de pestañas */
 
 body {
     font-family: 'Segoe UI', system-ui, sans-serif;
@@ -17,11 +17,10 @@ body {
     flex-wrap: wrap;
     align-items: center;
 }
-/* Contenedor con scroll horizontal para la tabla de horarios */
+/* Contenedor con scroll horizontal para la tabla */
 #horario-container {
     overflow-x: auto;
 }
-/* Tabla de horarios */
 table {
     width: 100%;
     min-width: 800px;
@@ -46,7 +45,6 @@ td small {
     font-size: 0.8em;
     color: gray;
 }
-/* Estilos para los estados de las celdas */
 .celda-libre {
     background-color: #E8F5E9;
     cursor: pointer;
@@ -63,7 +61,6 @@ td small {
 .celda-deuda-sin-adelanto {
     background-color: #FFCDD2;
 }
-/* Botones generales */
 button, .btn {
     background-color: #2E7D32;
     color: white;
@@ -77,7 +74,6 @@ button, .btn {
 button:hover, .btn:hover {
     background-color: #1B5E20;
 }
-/* Botones pequeños para acciones en tabla */
 .btn-accion {
     background-color: #1565C0;
     border-radius: 20px;
@@ -88,14 +84,12 @@ button:hover, .btn:hover {
 .btn-accion:hover {
     background-color: #0D47A1;
 }
-/* Campos de formulario */
 input, select {
     border: 1px solid #CFD8DC;
     border-radius: 16px;
     padding: 8px 12px;
     font-family: inherit;
 }
-/* Modales generales */
 .modal {
     display: none;
     position: fixed;
@@ -116,7 +110,6 @@ input, select {
     overflow-y: auto;
     box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
-/* Modal específico para cancelación de semana (usado en script.js) */
 .modal-cancelar {
     display: none;
     position: fixed;
@@ -133,7 +126,7 @@ input, select {
     padding: 20px;
     min-width: 350px;
 }
-/* Estilos para las pestañas (usadas en admin.html) */
+/* ========== ESTILOS CORREGIDOS PARA LAS PESTAÑAS ========== */
 .tab {
     overflow: hidden;
     border-bottom: 1px solid #ccc;
@@ -141,7 +134,8 @@ input, select {
     position: relative;
 }
 .tab button {
-    background-color: inherit;
+    background-color: #E0E0E0;      /* Fondo gris claro para inactivos */
+    color: #1B5E20;                 /* Texto verde oscuro */
     float: left;
     border: none;
     outline: none;
@@ -154,14 +148,15 @@ input, select {
     position: relative;
 }
 .tab button:hover {
-    background-color: #ddd;
+    background-color: #C8E6C9;      /* Verde muy claro al pasar el mouse */
+    color: #0D3B0F;
 }
 .tab button.active {
-    background-color: #1B5E20;
-    color: white;
+    background-color: #1B5E20;      /* Fondo verde oscuro para el activo */
+    color: white;                   /* Texto blanco */
     border-bottom: 3px solid #FF8F00;
 }
-/* Badge para notificaciones en pestañas */
+/* Badge para notificaciones (opcional) */
 .badge {
     background-color: red;
     color: white;
@@ -177,7 +172,9 @@ input, select {
     background-color: #FF8F00;
     color: #1B5E20;
 }
-/* Estilos para la tabla de reservas recurrentes */
+/* ========== FIN ESTILOS PESTAÑAS ========== */
+
+/* Tabla de reservas recurrentes */
 #tabla-recurrentes {
     width: 100%;
     border-collapse: collapse;
@@ -201,11 +198,11 @@ input, select {
 #tabla-recurrentes tbody tr:nth-child(even) {
     background-color: #F9FBE7;
 }
-/* Contenedor con scroll para la tabla de recurrentes en pantallas pequeñas */
 #recurrentes-container {
     overflow-x: auto;
 }
-/* Ajustes responsivos */
+
+/* Responsivo */
 @media (max-width: 768px) {
     body {
         padding: 10px;
