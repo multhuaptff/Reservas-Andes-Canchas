@@ -1,4 +1,6 @@
 // script.js - Versión definitiva con RPC para reservas recurrentes
+// Mejorado: sin emojis problemáticos y con colores de respaldo
+
 let supabaseClient;
 let fechaActual = new Date().toISOString().slice(0,10);
 let canchas = [];
@@ -325,7 +327,7 @@ async function cargarRecurrentes() {
     const tbody = document.querySelector('#tabla-recurrentes tbody');
     if (error) {
         console.error('Error cargando recurrentes:', error);
-        if (tbody) tbody.innerHTML = '<table><td colspan="11">Error al cargar las recurrencias.</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="11">Error al cargar las recurrencias.</td></tr>';
         if (window.updateRecurrentesBadge) window.updateRecurrentesBadge(false);
         return;
     }
@@ -363,7 +365,8 @@ async function cargarRecurrentes() {
         row.insertCell(4).innerText = canchaNombres.join(', ');
         row.insertCell(5).innerText = `S/ ${r.adelanto_semanal}`;
         row.insertCell(6).innerText = `${r.fecha_inicio} - ${r.fecha_fin || 'indefinido'}`;
-        row.insertCell(7).innerText = r.activo ? '✅ Activo' : '❌ Inactivo';
+        // Reemplazar emojis
+        row.insertCell(7).innerText = r.activo ? 'Activo' : 'Inactivo';
         const proxFecha = calcularProximaFecha(r, hoyUTC);
         row.insertCell(8).innerText = proxFecha ? proxFecha.toLocaleDateString('es-CL') : 'No disponible';
         let lost = [];
@@ -372,23 +375,24 @@ async function cargarRecurrentes() {
         row.insertCell(9).innerText = `S/ ${perdidoTotal.toFixed(2)}`;
         
         const cellAcciones = row.insertCell(10);
+        // Botones con texto en lugar de emojis
         const btnEditar = document.createElement('button');
-        btnEditar.innerText = '✏️';
+        btnEditar.innerText = 'Editar';
         btnEditar.className = 'btn-accion';
         btnEditar.style.margin = '2px';
         btnEditar.style.padding = '4px 8px';
         btnEditar.style.cursor = 'pointer';
         btnEditar.onclick = () => editarRecurrencia(r);
         const btnEliminar = document.createElement('button');
-        btnEliminar.innerText = '🗑️';
+        btnEliminar.innerText = 'Eliminar';
         btnEliminar.className = 'btn-accion';
         btnEliminar.onclick = () => eliminarRecurrencia(r.id);
         const btnCancelar = document.createElement('button');
-        btnCancelar.innerText = '⛔';
+        btnCancelar.innerText = 'Cancelar Semana';
         btnCancelar.className = 'btn-accion';
         btnCancelar.onclick = () => abrirModalCancelacionSemana(r);
         const btnAsistencia = document.createElement('button');
-        btnAsistencia.innerText = '📋';
+        btnAsistencia.innerText = 'Asistencia';
         btnAsistencia.className = 'btn-accion';
         btnAsistencia.onclick = () => verAsistenciaRecurrencia(r.id);
         cellAcciones.appendChild(btnEditar);
@@ -408,7 +412,7 @@ function abrirModalCancelacionSemana(recur) {
     const avisoCheck = document.getElementById('cancel-aviso');
     const noticeHours = recur.notice_hours || 24;
     if (avisoCheck && avisoCheck.nextSibling) {
-        avisoCheck.nextSibling.textContent = ` Avisó con anticipación (≥ ${noticeHours} horas)`;
+        avisoCheck.nextSibling.textContent = ` Avisó con anticipación (>= ${noticeHours} horas)`;
     }
     modal.style.display = 'flex';
 }
@@ -436,7 +440,6 @@ async function confirmarCancelacionSemana() {
         return;
     }
 
-    // === VALIDACIÓN DE FECHA FUTURA ===
     const hoyUTC = getTodayUTC();
     if (fecha < hoyUTC) {
         alert("No se puede cancelar una fecha pasada.");
@@ -459,7 +462,6 @@ async function confirmarCancelacionSemana() {
     let lostDates = recur.lost_advance_dates ? JSON.parse(recur.lost_advance_dates) : [];
     
     if (avisoConTiempo && horasRestantes < noticeHours) {
-        // Aviso pero con menos horas de las requeridas → se pierde adelanto (comportamiento anterior)
         if (!confirm(`Faltan menos de ${noticeHours} horas para la reserva. Si continúa, el adelanto se perderá. ¿Desea cancelar igualmente?`)) {
             return;
         }
@@ -469,12 +471,10 @@ async function confirmarCancelacionSemana() {
             skip_dates: JSON.stringify(skipDates),
             lost_advance_dates: JSON.stringify(lostDates)
         }).eq('id', recur.id);
-        // Eliminar reserva existente (pérdida de adelanto)
         await supabaseClient.from('reservas').delete().eq('recurrente_id', recur.id).eq('fecha', fechaStr);
         alert('Semana cancelada SIN aviso suficiente. Adelanto perdido.');
     } 
     else if (avisoConTiempo) {
-        // === NUEVO: Cancelación CON aviso válido → NO eliminar, solo actualizar estado ===
         if (!skipDates.includes(fechaStr)) skipDates.push(fechaStr);
         lostDates = lostDates.filter(d => d !== fechaStr);
         await supabaseClient.from('reservas_recurrentes').update({
@@ -482,7 +482,6 @@ async function confirmarCancelacionSemana() {
             lost_advance_dates: JSON.stringify(lostDates)
         }).eq('id', recur.id);
         
-        // Actualizar la reserva existente (si existe) a 'cancelado_con_aviso'
         const { error: updateError } = await supabaseClient
             .from('reservas')
             .update({ estado_asistencia: 'cancelado_con_aviso' })
@@ -495,7 +494,6 @@ async function confirmarCancelacionSemana() {
         alert('Semana cancelada con aviso. Adelanto conservado y reserva marcada como cancelada con aviso.');
     } 
     else {
-        // Sin aviso → pérdida de adelanto (comportamiento anterior)
         if (!lostDates.includes(fechaStr)) lostDates.push(fechaStr);
         skipDates = skipDates.filter(d => d !== fechaStr);
         await supabaseClient.from('reservas_recurrentes').update({
@@ -649,7 +647,6 @@ async function eliminarRecurrencia(id) {
 // Funciones RPC adicionales (opcionales, si las creas en Supabase)
 async function generarReservasAhora() {
     try {
-        // Si tienes una función RPC llamada 'generar_todas_reservas_recurrentes'
         const { data, error } = await supabaseClient.rpc('generar_todas_reservas_recurrentes');
         if (error) throw error;
         alert(`Se generaron ${data} nuevas reservas recurrentes.`);
@@ -742,19 +739,26 @@ async function renderizarTabla(vista) {
                     if (deuda <= 0.01) clase = 'celda-pagado';
                     else if (reservaEnSlot.adelanto > 0) clase = 'celda-deuda-adelanto';
                     else clase = 'celda-deuda-sin-adelanto';
-                    contenido += `<br><small>💰 Pagado: S/${pagado.toFixed(2)}</small>`;
-                    if (deuda > 0) contenido += `<br><small>⚠️ Deuda: S/${deuda.toFixed(2)}</small>`;
+                    // Reemplazo de emojis por texto
+                    contenido += `<br><small>Pagado: S/${pagado.toFixed(2)}</small>`;
+                    if (deuda > 0) contenido += `<br><small>Deuda: S/${deuda.toFixed(2)}</small>`;
                 }
                 celda.className = clase;
                 celda.innerHTML = contenido;
                 celda.dataset.reservaId = reservaEnSlot.id;
             } else {
                 celda.className = 'celda-libre';
-                celda.innerHTML = '📌 Libre';
+                celda.innerHTML = 'Libre';   // Sin emoji
                 celda.dataset.canchaId = cancha.id;
                 celda.dataset.slotStart = slotStart.toISOString();
                 celda.dataset.slotEnd = slotEnd.toISOString();
             }
+            // Colores de respaldo en caso de que el CSS falle
+            if (celda.classList.contains('celda-libre')) celda.style.backgroundColor = '#E8F5E9';
+            else if (celda.classList.contains('celda-ocupada')) celda.style.backgroundColor = '#FFEBEE';
+            else if (celda.classList.contains('celda-pagado')) celda.style.backgroundColor = '#C8E6C9';
+            else if (celda.classList.contains('celda-deuda-adelanto')) celda.style.backgroundColor = '#FFF9C4';
+            else if (celda.classList.contains('celda-deuda-sin-adelanto')) celda.style.backgroundColor = '#FFCDD2';
             row.appendChild(celda);
         }
         tbody.appendChild(row);
@@ -1035,12 +1039,12 @@ function startKeepAlive() {
                 .from('canchas')
                 .select('id', { count: 'exact', head: true });
             if (error) {
-                console.warn('⚠️ Keep-alive falló:', error.message);
+                console.warn('Keep-alive falló:', error.message);
             } else {
-                console.log('✅ Keep-alive exitoso -', new Date().toLocaleString());
+                console.log('Keep-alive exitoso -', new Date().toLocaleString());
             }
         } catch (err) {
-            console.error('❌ Error en keep-alive:', err);
+            console.error('Error en keep-alive:', err);
         }
     }
     ping();
